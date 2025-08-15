@@ -1,0 +1,49 @@
+<?php
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+
+/*
+|--------------------------------------------------------------------------
+| Web Routes
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/', function () {
+    return view('welcome');
+});
+
+// Serve the Companies House search page at /ch
+Route::view('/ch', 'ch')->name('ch');
+
+// --- Clients: simple file-backed storage in storage/app/clients.json --- //
+Route::get('/clients', function () {
+    $file = storage_path('app/clients.json');
+    $clients = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
+    // Keep array stable & non-associative for Blade
+    return view('clients', ['clients' => array_values($clients)]);
+})->name('clients.index');
+
+Route::post('/clients', function (Request $request) {
+    $file = storage_path('app/clients.json');
+    $clients = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
+
+    // we save by unique company number (string)
+    $company = $request->input('company');
+    $number  = $company['number'] ?? $company['company_number'] ?? null;
+
+    if ($number) {
+        $clients[$number] = $company; // upsert
+        file_put_contents($file, json_encode($clients, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    }
+
+    return response()->json(['ok' => true]);
+})->name('clients.store');
+
+Route::delete('/clients/{number}', function (string $number) {
+    $file = storage_path('app/clients.json');
+    $clients = file_exists($file) ? json_decode(file_get_contents($file), true) : [];
+    unset($clients[$number]);
+    file_put_contents($file, json_encode($clients, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    return back();
+})->name('clients.delete');
