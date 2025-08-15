@@ -7,69 +7,67 @@ use Illuminate\Support\Facades\Storage;
 
 class ClientController extends Controller
 {
-    private function filePath(): string
+    private function storePath(): string
     {
-        return 'clients.json'; // stored at storage/app/clients.json
+        // Stored at storage/app/clients.json
+        return 'clients.json';
     }
 
-    private function load(): array
+    private function readAll(): array
     {
-        if (! Storage::exists($this->filePath())) {
+        if (!Storage::exists($this->storePath())) {
             return [];
         }
-        $raw = Storage::get($this->filePath());
-        $data = json_decode($raw, true);
+        $json = Storage::get($this->storePath());
+        $data = json_decode($json, true);
         return is_array($data) ? $data : [];
     }
 
-    private function save(array $items): void
+    private function writeAll(array $items): void
     {
-        Storage::put($this->filePath(), json_encode(array_values($items), JSON_PRETTY_PRINT));
+        Storage::put($this->storePath(), json_encode(array_values($items), JSON_PRETTY_PRINT));
     }
 
     public function index()
     {
-        $clients = $this->load();
-        return view('clients', compact('clients')); // Blade view comes in Step 3
+        $clients = $this->readAll();
+        return view('clients', ['clients' => $clients]);
     }
 
     public function store(Request $request)
     {
-        $payload = $request->input('payload', '');
-        $item = json_decode($payload, true);
+        // Accept either "number" or "company_number" from forms
+        $number = $request->input('number', $request->input('company_number'));
+        $name   = trim((string) $request->input('name', ''));
 
-        if (! is_array($item) || empty($item['number'])) {
-            return redirect()->route('clients.index')->with('ok', 'Invalid payload');
+        if ($name === '') {
+            // Keep it simple: flash an error and show the list
+            return redirect()->route('clients.index')->with('error', 'Invalid payload: name is required.');
         }
 
-        $clients = $this->load();
+        $clients   = $this->readAll();
+        $clients[] = [
+            'id'            => uniqid('', true),
+            'number'        => $number ?? '',
+            'name'          => $name,
+            'status'        => $request->input('status', 'prospect'),
+            'address'       => $request->input('address'),
+            'company_name'  => $request->input('company_name'),
+            'notes'         => $request->input('notes'),
+            'added_at'      => now()->toDateTimeString(),
+        ];
 
-        // Prevent duplicates by company number
-        $number = (string) $item['number'];
-        $found = false;
-        foreach ($clients as $idx => $c) {
-            if (($c['number'] ?? '') === $number) {
-                $clients[$idx] = $item + ['saved_at' => now()->toDateTimeString()];
-                $found = true;
-                break;
-            }
-        }
-        if (! $found) {
-            $item['saved_at'] = now()->toDateTimeString();
-            $clients[] = $item;
-        }
+        $this->writeAll($clients);
 
-        $this->save($clients);
-
-        return redirect()->route('clients.index')->with('ok', 'Client saved.');
+        return redirect()->route('clients.index')->with('success', 'Client added.');
     }
 
     public function destroy(string $id)
     {
-        $clients = $this->load();
-        $clients = array_values(array_filter($clients, fn ($c) => ($c['number'] ?? '') !== $id));
-        $this->save($clients);
+        $clients = $this->readAll();
+        $clients = array_values(array_filter($clients, fn ($c) => ($c['id'] ?? '') !== $id));
+        $this->writeAll($clients);
 
-        return redirect()->route('clients.index')->with('ok', 'Client removed.');
+        return redirect()->route('clients.index')->with('success', 'Client removed.');
     }
 }

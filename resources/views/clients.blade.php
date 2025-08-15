@@ -1,48 +1,88 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Clients</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f7f7f8;margin:0}
-    .wrap{max-width:1000px;margin:24px auto;padding:0 16px}
-    a.btn{color:#0ea5e9;text-decoration:none}
-    table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden}
-    th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}
-    form{display:inline}
-    button{background:#ef4444;border:none;color:#fff;padding:6px 10px;border-radius:6px;cursor:pointer}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Clients</h1>
-    <p><a href="{{ route('ch.page') }}" class="btn">← Back to search</a></p>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Clients</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      :root { --border:#e5e7eb; --muted:#6b7280; --bg:#f9fafb; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; color:#111827; background:#fafafa; }
+      a { color:#2563eb; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      h1 { margin: 0 0 12px; }
+      .container { max-width: 980px; margin: 0 auto; }
+      .card { background:#fff; border:1px solid var(--border); border-radius:12px; }
+      .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+      .flash { padding:10px 12px; border:1px solid var(--border); border-radius:10px; margin:10px 0; }
+      .flash.ok { background:#ecfdf5; }
+      .flash.err { background:#fef2f2; }
+      table { width:100%; border-collapse: collapse; }
+      th, td { padding: 12px; border-top:1px solid var(--border); text-align:left; }
+      thead th { background: var(--bg); border-top:0; }
+      .muted { color: var(--muted); }
+      .btn { padding: 6px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; cursor:pointer; }
+      .btn.danger { border-color:#ef4444; color:#b91c1c; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Clients</h1>
+        <div><a href="{{ url('/ch') }}">← Back to search</a></div>
+      </div>
 
-    @if(session('ok')) <p>{{ session('ok') }}</p> @endif
+      @if (session('success'))
+        <div class="flash ok">{{ session('success') }}</div>
+      @endif
+      @if (session('error'))
+        <div class="flash err">{{ session('error') }}</div>
+      @endif
 
-    <table>
-      <thead><tr>
-        <th>Number</th><th>Name</th><th>Status</th><th></th>
-      </tr></thead>
-      <tbody>
-      @forelse($clients as $c)
-        <tr>
-          <td>{{ $c['number'] ?? ($c['company']['number'] ?? '—') }}</td>
-          <td>{{ $c['company']['name'] ?? '—' }}</td>
-          <td>{{ $c['company']['status'] ?? '—' }}</td>
-          <td>
-            <form method="POST" action="{{ route('clients.destroy', $c['number'] ?? ($c['company']['number'] ?? '')) }}">
-              @csrf @method('DELETE')
-              <button type="submit">Remove</button>
-            </form>
-          </td>
-        </tr>
-      @empty
-        <tr><td colspan="4">No clients yet.</td></tr>
-      @endforelse
-      </tbody>
-    </table>
-  </div>
-</body>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Number</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th>Added</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            @forelse ($clients as $c)
+              <tr>
+                <td>{{ $c['number'] ?? '' }}</td>
+                <td>
+                  <div><strong>{{ $c['name'] ?? '' }}</strong></div>
+                  @if (!empty($c['address']) || !empty($c['company_name']))
+                    <div class="muted">
+                      {{ $c['company_name'] ?? '' }}
+                      {{ (!empty($c['company_name']) && !empty($c['address'])) ? ' • ' : '' }}
+                      {{ $c['address'] ?? '' }}
+                    </div>
+                  @endif
+                </td>
+                <td>{{ $c['status'] ?? '' }}</td>
+                <td class="muted">{{ $c['notes'] ?? '' }}</td>
+                <td class="muted">{{ $c['added_at'] ?? '' }}</td>
+                <td>
+                  <form action="{{ route('clients.destroy', ['id' => $c['id']]) }}" method="POST" onsubmit="return confirm('Delete this client?');">
+                    @csrf
+                    @method('DELETE')
+                    <button class="btn danger" type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            @empty
+              <tr>
+                <td colspan="6" class="muted">No clients yet.</td>
+              </tr>
+            @endforelse
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </body>
 </html>

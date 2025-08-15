@@ -1,283 +1,167 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
     <title>Companies House Search</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
-        :root {
-            --bg: #0b0d10;
-            --panel: #15181d;
-            --panel-2: #1b2027;
-            --text: #e9eef3;
-            --muted: #a7b0bb;
-            --accent: #6ea8fe;
-            --border: #2a323b;
-            --pill: #ecf2ff;
-            --pilltext: #264a9b;
-        }
-        html, body { height: 100%; }
-        body {
-            margin: 0; background: var(--bg); color: var(--text);
-            font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
-        }
-        .wrap { max-width: 1200px; margin: 28px auto; padding: 0 16px; }
-        h1 { margin: 0 0 16px; font-weight: 800; letter-spacing: .2px; }
-        .search {
-            width: 100%; border-radius: 12px; padding: 16px 18px; color: var(--text);
-            background: var(--panel); border: 1px solid var(--border);
-            outline: none; font-size: 18px; box-sizing: border-box;
-        }
-        .list { margin-top: 18px; display: grid; gap: 10px; }
-        .item {
-            background: var(--panel); border: 1px solid var(--border);
-            border-radius: 14px; padding: 16px 18px; cursor: pointer;
-            display: grid; grid-template-columns: 1fr auto; align-items: center;
-        }
-        .item:hover { background: var(--panel-2); }
-        .name { font-weight: 700; margin-bottom: 4px; }
-        .addr { color: var(--muted); font-size: 14px; }
-        .badge {
-            background: var(--pill); color: var(--pilltext);
-            padding: 6px 10px; border-radius: 999px; font-weight: 700; font-size: 13px;
-        }
-        .empty {
-            margin-top: 18px; color: var(--muted);
-            border: 1px dashed var(--border); border-radius: 14px;
-            padding: 16px 18px; background: var(--panel);
-        }
-
-        /* Modal */
-        .modal-backdrop {
-            position: fixed; inset: 0; background: rgba(0,0,0,.55);
-            display: none; align-items: center; justify-content: center; z-index: 1000;
-        }
-        .modal {
-            width: min(1100px, calc(100vw - 32px));
-            max-height: calc(100vh - 32px);
-            background: var(--panel); color: var(--text);
-            border: 1px solid var(--border); border-radius: 18px; overflow: hidden;
-            box-shadow: 0 20px 60px rgba(0,0,0,.5);
-        }
-        .modal-hd { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: center; justify-content: space-between; }
-        .modal-ttl { font-weight: 800; }
-        .modal-bd { padding: 0; max-height: calc(100vh - 32px - 56px); overflow: auto; }
-        .section { padding: 16px 18px; border-top: 1px solid var(--border); }
-        .grid2 { display: grid; grid-template-columns: 280px 1fr; gap: 10px; }
-        .key { color: var(--muted); font-size: 14px; }
-        .val { font-weight: 600; }
-        .h3 { font-weight: 800; margin: 10px 0 12px; }
-        .rows { display: grid; gap: 10px; }
-        .row {
-            background: #12161b; border: 1px solid var(--border); border-radius: 12px;
-            padding: 10px 12px; display: grid; gap: 3px; font-size: 14px;
-        }
-        .closebtn { background: transparent; color: var(--text); border: 1px solid var(--border); padding: 8px 10px; border-radius: 10px; cursor: pointer; }
-        .link { color: var(--accent); text-decoration: none; }
-        .muted { color: var(--muted); }
+      body { font-family: system-ui, Arial, sans-serif; margin: 24px; line-height: 1.4; color:#111827; }
+      h1 { margin: 0 0 12px; }
+      .row { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+      input[type="text"] { flex: 1; padding: 10px 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 8px; }
+      .status { font-size: 14px; opacity: .8; }
+      ul { list-style: none; padding: 0; margin: 12px 0 0; }
+      li { border: 1px solid #e5e7eb; border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+      .item { display:block; padding: 12px; text-decoration: none; color: inherit; }
+      .item:hover { background:#f8fafc; }
+      .name { font-weight: 600; }
+      .meta { font-size: 13px; opacity: .85; }
+      .addr { margin-top: 4px; font-size: 13px; opacity: .9; }
+      .muted { opacity: .7; }
+      .error { color: #b00020; }
+      .actions { display:flex; gap:8px; align-items:center; padding: 0 12px 12px 12px; }
+      .btn { display:inline-block; padding:8px 12px; border:1px solid #111827; background:#111827; color:#fff; border-radius:10px; cursor:pointer; font-size:14px; }
+      .btn[disabled] { opacity:.6; cursor:not-allowed; }
+      .pill { font-size:12px; padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px; margin-left:8px; }
+      .ok { color:#065f46; }
     </style>
-</head>
-<body>
-<div class="wrap">
+  </head>
+  <body>
     <h1>Companies House Search</h1>
-    <input id="q" class="search" type="text" placeholder="Type a company name or number…" autocomplete="off" />
 
-    <div id="results" class="list" aria-live="polite"></div>
-    <div id="empty" class="empty" style="display:none;">Start typing to search Companies House…</div>
-</div>
-
-<!-- Modal -->
-<div id="backdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="m-title">
-    <div class="modal">
-        <div class="modal-hd">
-            <div class="modal-ttl" id="m-title">Company</div>
-            <div style="display:flex; gap:8px;">
-                <a id="m-open-ch" class="closebtn link" target="_blank" rel="noopener">Open on Companies House ↗</a>
-                <button class="closebtn" data-close>Close</button>
-            </div>
-        </div>
-        <div class="modal-bd" id="m-body">
-            <!-- filled by JS -->
-        </div>
+    <div class="row">
+      <!-- only our list (no datalist) -->
+      <input id="q" type="text" placeholder="Type a company name… e.g. tesco" autocomplete="off" autofocus>
+      <span id="status" class="status muted"></span>
     </div>
-</div>
 
-<script>
-(function () {
-    const qEl = document.getElementById('q');
-    const listEl = document.getElementById('results');
-    const emptyEl = document.getElementById('empty');
+    <ul id="results"></ul>
 
-    const backdrop = document.getElementById('backdrop');
-    const mBody    = document.getElementById('m-body');
-    const mTitle   = document.getElementById('m-title');
-    const mOpenCH  = document.getElementById('m-open-ch');
+    <script>
+      const q = document.getElementById('q');
+      const list = document.getElementById('results');
+      const statusEl = document.getElementById('status');
 
-    // ---------- helpers ----------
-    const debounce = (fn, ms=300) => {
-        let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
-    };
-    const esc = (s) => (s ?? '').toString()
-        .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+      const API_URL = "{{ route('ch.search') }}";
+      const COMPANY_URL_TMPL = "{{ route('ch.company', ['number' => '___NUMBER___']) }}";
+      const STORE_URL = "{{ route('companies.store') }}";
+      const companyUrl = (num) => COMPANY_URL_TMPL.replace('___NUMBER___', encodeURIComponent(num || ''));
 
-    const none = (arr) => !arr || !Array.isArray(arr) || arr.length === 0;
+      const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
-    // Render a person row (officer or psc)
-    function personRow(p) {
-        const bits = [];
-        if (p.role) bits.push(`<span class="muted">Role:</span> ${esc(p.role)}`);
-        if (p.appointed) bits.push(`<span class="muted">Appointed:</span> ${esc(p.appointed)}`);
-        if (p.resigned) bits.push(`<span class="muted">Resigned:</span> ${esc(p.resigned)}`);
-        if (p.nationality) bits.push(`<span class="muted">Nationality:</span> ${esc(p.nationality)}`);
-        if (p.occupation) bits.push(`<span class="muted">Occupation:</span> ${esc(p.occupation)}`);
-        if (p.country) bits.push(`<span class="muted">Country:</span> ${esc(p.country)}`);
+      function escapeHtml(s) {
+        return (s || '').toString().replace(/[&<>"']/g, c => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+        }[c]));
+      }
 
-        if (p.natures_of_control && p.natures_of_control.length) {
-            bits.push(`<span class="muted">Control:</span> ${esc(p.natures_of_control.join(', '))}`);
-        } else if (p.control && p.control.length) {
-            bits.push(`<span class="muted">Control:</span> ${esc(p.control.join(', '))}`);
-        }
+      function debounce(fn, ms = 300) {
+        let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+      }
 
+      function liTemplate(it) {
+        const href = it.number ? companyUrl(it.number) : '#';
         return `
-          <div class="row">
-            <div style="font-weight:700">${esc(p.name || '')}</div>
-            ${bits.map(b => `<div>${b}</div>`).join('')}
-          </div>`;
-    }
-
-    function section(title, contentHtml) {
-        return `
-            <div class="section">
-                <div class="h3">${esc(title)}</div>
-                ${contentHtml}
-            </div>`;
-    }
-
-    function keyvalGrid(map) {
-        return `
-         <div class="section grid2">
-           ${Object.entries(map).map(([k,v]) =>
-             `<div class="key">${esc(k)}</div><div class="val">${v ? esc(v) : '<span class="muted">—</span>'}</div>`
-           ).join('')}
-         </div>`;
-    }
-
-    function openModal() { backdrop.style.display = 'flex'; }
-    function closeModal() { backdrop.style.display = 'none'; }
-
-    // ---------- search ----------
-    async function doSearch(q) {
-        if (!q) {
-            listEl.innerHTML = '';
-            emptyEl.style.display = 'block';
-            return;
-        }
-        emptyEl.style.display = 'none';
-        listEl.innerHTML = '<div class="empty">Searching…</div>';
-
-        const r = await fetch(`/api/ch?q=${encodeURIComponent(q)}`);
-        if (!r.ok) {
-            listEl.innerHTML = `<div class="empty">Search failed (${r.status}).</div>`;
-            return;
-        }
-        const json = await r.json();
-        const items = json.data || [];
-
-        if (!items.length) {
-            listEl.innerHTML = `<div class="empty">No results.</div>`;
-            return;
-        }
-
-        listEl.innerHTML = items.map(it => `
-            <div class="item result" data-number="${esc(it.number || '')}">
-                <div>
-                    <div class="name">${esc(it.name || '')}</div>
-                    <div class="addr">${esc(it.address || '')}</div>
-                </div>
-                <div class="badge">${esc(it.number || '')}</div>
+          <li data-number="${escapeHtml(it.number || '')}">
+            <a class="item" href="${href}">
+              <div class="name">${escapeHtml(it.name)} <span class="pill">Open →</span></div>
+              <div class="meta">
+                Number: <strong>${escapeHtml(it.number || '-')}</strong>
+                &nbsp;•&nbsp; Status: ${escapeHtml(it.status || '-')}
+                &nbsp;•&nbsp; Created: ${escapeHtml(it.date || '-')}
+              </div>
+              <div class="addr">${escapeHtml(it.address || '')}</div>
+            </a>
+            <div class="actions">
+              <button class="btn save-btn">Add</button>
+              <span class="save-msg muted"></span>
             </div>
-        `).join('');
-    }
+          </li>
+        `;
+      }
 
-    qEl.addEventListener('input', debounce(e => doSearch(e.target.value.trim()), 300));
-    // Trigger empty state initially
-    doSearch('');
+      function render(items) {
+        list.innerHTML = items.map(liTemplate).join('');
+      }
 
-    // ---------- click handling (EVENT DELEGATION!) ----------
-    document.addEventListener('click', async (e) => {
-        // close buttons
-        if (e.target.closest('[data-close]')) {
-            closeModal(); return;
+      async function saveCompany(number, btn, msgEl) {
+        if (!number) { msgEl.textContent = 'Missing company number'; msgEl.classList.remove('ok'); return; }
+        try {
+          btn.disabled = true;
+          msgEl.textContent = 'Saving…';
+          const res = await fetch(STORE_URL, {
+            method: 'POST',
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-CSRF-TOKEN': CSRF
+            },
+            body: JSON.stringify({ number })
+          });
+          const data = await res.json();
+          if (!res.ok || data.ok === false) {
+            throw new Error((data && data.error) ? data.error : `HTTP ${res.status}`);
+          }
+          msgEl.textContent = data.action === 'created' ? 'Saved ✓' : 'Updated ✓';
+          msgEl.classList.add('ok'); msgEl.classList.remove('muted');
+        } catch (e) {
+          msgEl.textContent = 'Error: ' + e.message;
+          msgEl.classList.remove('ok'); msgEl.classList.remove('muted');
+        } finally {
+          btn.disabled = false;
         }
-        if (e.target === backdrop) { closeModal(); return; }
+      }
 
-        // result row
-        const row = e.target.closest('.result[data-number]');
-        if (!row) return;
+      list.addEventListener('click', (e) => {
+        const btn = e.target.closest('.save-btn');
+        if (!btn) return;
+        e.preventDefault(); e.stopPropagation(); // don’t trigger the link
+        const li = btn.closest('li');
+        const num = li.getAttribute('data-number');
+        const msg = li.querySelector('.save-msg');
+        saveCompany(num, btn, msg);
+      });
 
-        const number = row.getAttribute('data-number');
-        if (!number) return;
+      async function search(term) {
+        term = term.trim();
+        if (!term) { list.innerHTML = ''; statusEl.textContent = ''; statusEl.classList.remove('error'); return; }
 
-        // fetch full
-        mTitle.textContent = 'Company';
-        mBody.innerHTML = '<div class="section">Loading…</div>';
-        mOpenCH.href = `https://find-and-update.company-information.service.gov.uk/company/${encodeURIComponent(number)}`;
-        openModal();
+        statusEl.textContent = 'Searching…';
+        statusEl.classList.remove('error');
 
         try {
-            const r = await fetch(`/api/ch?q=${encodeURIComponent(number)}&full=1`);
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            const json = await r.json();
-            const d = json.data || {};
+          const res = await fetch(API_URL + '?q=' + encodeURIComponent(term), {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            cache: 'no-store'
+          });
 
-            mTitle.textContent = d.name || 'Company';
+          const ct = res.headers.get('content-type') || '';
+          if (!ct.includes('application/json')) {
+            const txt = await res.text();
+            throw new Error(`Non-JSON (HTTP ${res.status}). First chars: ${txt.slice(0,80)}`);
+          }
 
-            // Top stuff
-            const top = keyvalGrid({
-                'Number': d.number,
-                'Status': d.status,
-                'Type': d.type,
-                'Created': d.created,
-                'Registered address': d.address,
-                'Accounts — next due': d.accounts?.next_due,
-                'Confirmation stmt — next made up to': d.confirmation_statement?.next_made_up_to,
-                'Confirmation stmt — overdue': d.confirmation_statement?.overdue ? 'true' : 'false'
-            });
+          const data = await res.json();
+          if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
 
-            // Officers
-            const offActive = d.officers_active || [];
-            const offRes    = d.officers_resigned || [];
-
-            const sOffActive = section(
-                'Directors & Officers — Active',
-                none(offActive) ? `<div class="muted">None</div>` : `<div class="rows">${offActive.map(personRow).join('')}</div>`
-            );
-
-            const sOffRes = section(
-                'Directors & Officers — Resigned',
-                none(offRes) ? `<div class="muted">None</div>` : `<div class="rows">${offRes.map(personRow).join('')}</div>`
-            );
-
-            // PSCs
-            const pscC = d.pscs_current || [];
-            const pscF = d.pscs_former || [];
-
-            const sPscC = section(
-                'Persons with Significant Control — Current',
-                none(pscC) ? `<div class="muted">None</div>` : `<div class="rows">${pscC.map(personRow).join('')}</div>`
-            );
-
-            const sPscF = section(
-                'Persons with Significant Control — Former',
-                none(pscF) ? `<div class="muted">None</div>` : `<div class="rows">${pscF.map(personRow).join('')}</div>`
-            );
-
-            mBody.innerHTML = top + sOffActive + sOffRes + sPscC + sPscF;
-        } catch (err) {
-            mBody.innerHTML = `<div class="section">Failed to load company details. ${esc(err.message)}</div>`;
+          const items = data.data || [];
+          statusEl.textContent = `${items.length} result${items.length === 1 ? '' : 's'}`;
+          render(items);
+        } catch (e) {
+          statusEl.textContent = 'Error: ' + e.message;
+          statusEl.classList.add('error');
+          list.innerHTML = '';
+          console.error(e);
         }
-    });
-})();
-</script>
-</body>
+      }
+
+      const onType = debounce(() => search(q.value), 250);
+      q.addEventListener('input', onType);
+      q.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); search(q.value); }
+      });
+    </script>
+  </body>
 </html>
