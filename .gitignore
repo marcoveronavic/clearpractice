@@ -22,3 +22,10 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# --- Keep app data JSON files, ignore everything else in storage
+/storage/*
+!/storage/app/
+!/storage/app/*.json
+!/storage/app/ch_deadlines/
+!/storage/app/ch_deadlines/*.json

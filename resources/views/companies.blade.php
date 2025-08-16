@@ -1,188 +1,248 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Companies</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <style>
-      :root { --border:#eaeaea; --muted:#666; --drawer-w:260px; --t:.25s; }
-      * { box-sizing:border-box; }
-      body { margin:0; font-family:system-ui, Arial, sans-serif; line-height:1.45; }
-      a { color:inherit; }
+@extends('layouts.app')
 
-      .menu-btn{position:fixed;top:16px;left:16px;z-index:1201;border:1px solid var(--border);background:#fff;border-radius:10px;padding:8px 10px;cursor:pointer}
-      body.drawer-open .menu-btn{left:calc(var(--drawer-w) + 16px)}
-      .drawer{position:fixed;inset:0 auto 0 0;width:var(--drawer-w);background:#fff;border-right:1px solid var(--border);transform:translateX(-100%);transition:transform var(--t) ease;z-index:1202;display:flex;flex-direction:column}
-      body.drawer-open .drawer{transform:translateX(0)}
-      .drawer header{padding:14px 16px;border-bottom:1px solid var(--border);font-weight:700}
-      .drawer nav a{display:block;padding:10px 14px;border-bottom:1px solid var(--border);text-decoration:none}
-      .drawer nav a.active{background:#111;color:#fff}
+@section('content')
+  <h1>Companies</h1>
 
-      .page{padding:24px;transition:transform var(--t) ease}
-      body.drawer-open .page{transform:translateX(var(--drawer-w))}
+  @if (session('success')) <div class="flash ok">{{ session('success') }}</div> @endif
+  @if (session('error'))   <div class="flash err">{{ session('error') }}</div>   @endif
 
-      h1{margin:0 0 12px}
-      .actions{margin:12px 0 16px;display:flex;gap:8px;flex-wrap:wrap}
-      .button{display:inline-block;border:1px solid var(--border);border-radius:10px;padding:8px 10px;text-decoration:none;color:inherit;background:#fff}
-      .button.primary{background:#111;color:#fff;border-color:#111}
-      .muted{color:var(--muted)}
-      .table{width:100%;border-collapse:collapse}
-      .table th,.table td{text-align:left;padding:8px 10px;vertical-align:top}
-      .table th{color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)}
-      .table tr+tr td{border-top:1px solid var(--border)}
-      code.inline{background:#f7f7f7;border:1px solid var(--border);border-radius:6px;padding:1px 6px}
-      .small{font-size:12px}
-      .name-link{text-decoration:underline}
-
-      /* Edit modal */
-      .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;padding:24px;z-index:2000}
-      .modal.show{display:flex}
-      .dialog{background:#fff;border-radius:14px;width:100%;max-width:720px;max-height:85vh;overflow:auto;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-      .dialog header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:#fff}
-      .dialog h2{margin:0;font-size:18px}
-      .close{border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
-      .content{padding:16px}
-      .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-      .field{display:flex;flex-direction:column;gap:6px}
-      .field label{font-size:13px;color:var(--muted)}
-      .field input{border:1px solid #ccc;border-radius:8px;padding:10px 12px;font-size:15px}
-      .kv{margin:6px 0}
-      .kv b{display:inline-block;width:170px;color:var(--muted);font-weight:600}
-      .bar{display:flex;justify-content:flex-end;gap:8px;padding-top:12px;margin-top:8px;border-top:1px dashed var(--border)}
-      .error{color:#b00020;font-weight:600}
-    </style>
-  </head>
-  <body>
-    <button class="menu-btn" id="menuBtn">☰</button>
-    <div class="drawer" id="drawer">
-      <header>Navigation</header>
-      <nav>
-        <a href="/companies" data-path="/companies">Companies</a>
-        <a href="/deadlines" data-path="/deadlines">Deadlines</a>
-        <a href="/ch" data-path="/ch">Companies House Search</a>
-        <a href="/tasks" data-path="/tasks">Tasks</a>
-        <a href="/individuals" data-path="/individuals">Individuals</a>
-      </nav>
+  <div class="card">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+      <input class="input" placeholder="Company number" id="add-number" style="width:160px">
+      <input class="input" placeholder="Company name"   id="add-name"   style="width:280px">
+      <button class="btn" id="add-update">Add / Update</button>
+      <span class="muted">Use CH search page to copy number/name, or fill manually.</span>
     </div>
 
-    <div class="page">
-      <h1>Companies</h1>
+    <table>
+      <thead>
+      <tr>
+        <th style="width:120px">Number</th>
+        <th>Name</th>
+        <th style="width:180px">Status / Type</th>
+        <th style="width:120px">Created</th>
+        <th>Address</th>
+        <th style="width:160px">Action</th>
+      </tr>
+      </thead>
+      <tbody>
+      @forelse ($companies as $c)
+        @php
+          $meta = $c['meta'] ?? [];
+          $num  = $c['number'] ?? '';
+          $name = $c['name']   ?? '';
+          $openChUrl = $num ? 'https://find-and-update.company-information.service.gov.uk/company/' . urlencode($num) : '#';
+        @endphp
 
-      <div class="actions">
-        <a class="button" href="/ch">＋ Add more</a>
-        <a class="button" href="/deadlines">Deadlines</a>
+        <!-- Make entire row clickable (except links/buttons/forms) -->
+        <tr class="row-open"
+            data-number="{{ $num }}"
+            data-name="{{ $name }}"
+            data-meta='@json($meta)'>
+          <td>
+            <div style="font-weight:600">{{ $num }}</div>
+            @if($num)
+              <a class="muted" href="{{ $openChUrl }}" target="_blank" rel="noopener">Open on CH ↗</a>
+            @endif
+          </td>
+          <td>
+            <div style="font-weight:600">{{ $name }}</div>
+            @if (!empty($c['sic']) && is_array($c['sic']))
+              <div class="muted" style="margin-top:2px">
+                @foreach ($c['sic'] as $code)
+                  <span class="pill" style="margin-right:4px">{{ $code }}</span>
+                @endforeach
+              </div>
+            @endif
+          </td>
+          <td>
+            <div>{{ $c['status'] ?? '' }}</div>
+            <div class="muted">
+              {{ $c['type'] ?? '' }}
+              @if(!empty($c['jurisdiction'])) • {{ $c['jurisdiction'] }} @endif
+            </div>
+          </td>
+          <td>{{ $c['created'] ?? '' }}</td>
+          <td>{{ $c['address'] ?? '' }}</td>
+          <td>
+            <!-- Dedicated button (works even if row click is disabled) -->
+            <button class="btn light open-edit"
+                    data-number="{{ $num }}"
+                    data-name="{{ $name }}"
+                    data-meta='@json($meta)'>
+              Edit / View
+            </button>
+
+            <form action="{{ route('companies.destroy', ['number' => $num]) }}"
+                  method="POST"
+                  style="display:inline-block;margin-left:8px"
+                  onsubmit="return confirm('Delete this company?');">
+              @csrf
+              @method('DELETE')
+              <button class="btn danger" type="submit">Delete</button>
+            </form>
+          </td>
+        </tr>
+      @empty
+        <tr><td colspan="6" class="muted">No companies saved yet.</td></tr>
+      @endforelse
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Edit / View Modal -->
+  <dialog id="edit-modal" style="max-width:720px;border-radius:14px;border:1px solid #e5e7eb;">
+    <form id="edit-form" method="POST">
+      @csrf
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-weight:700" id="edit-title">Edit company</div>
+          <div class="muted" id="edit-subtitle"></div>
+        </div>
+        <button type="button" class="btn light" id="edit-close">Close</button>
       </div>
 
-      @if (empty($companies))
-        <p class="muted">No companies saved yet. Use <a href="/ch">Companies House Search</a> to add one.</p>
-        <a href="/tasks" data-path="/tasks">Tasks</a>
-        <a href="/individuals" data-path="/individuals">Individuals</a>
-      @else
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Number</th>
-              <th>Status</th>
-              <th>Created</th>
-              <th>Address</th>
-              <th>Saved</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            @foreach ($companies as $c)
-              @php $num = $c['number'] ?? ''; @endphp
-              <tr data-row-number="{{ $num }}">
-                <td><a class="name-link" href="/companies/{{ urlencode($num) }}">{{ $c['name'] ?? '' }}</a></td>
-                <td><code class="inline">{{ $num }}</code></td>
-                <td>{{ $c['status'] ?? '-' }}</td>
-                <td>{{ $c['created'] ?? '-' }}</td>
-                <td>{{ $c['address'] ?? '-' }}</td>
-                <td class="muted small">{{ $c['saved_at'] ?? '' }}</td>
-                <td style="white-space:nowrap;">
-                  <button class="button editBtn" data-number="{{ $num }}">Edit</button>
-                  <a class="button" href="https://find-and-update.company-information.service.gov.uk/company/{{ urlencode($num) }}" target="_blank" rel="noopener noreferrer">Open on CH ↗</a>
-                </td>
-              </tr>
-            @endforeach
-          </tbody>
-        </table>
-      @endif
-    </div>
+      <div class="grid-2" style="gap:10px">
+        <div class="field">
+          <label>Authentication code</label>
+          <input class="input" name="authentication_code" />
+        </div>
+        <div class="field">
+          <label>UTR</label>
+          <input class="input" name="utr" />
+        </div>
 
-    <!-- Edit Modal -->
-    <div id="editModal" class="modal" aria-hidden="true">
-      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
-        <header>
-          <h2 id="dlg-title">Edit company</h2>
-          <button class="close" id="closeEdit" aria-label="Close">✕</button>
-        </header>
-        <div class="content">
-          <div id="companyInfo" class="kv muted">Loading…</div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Registered office</label>
+          <input class="input" name="registered_office" />
+        </div>
 
-          <div class="grid" style="margin-top:10px;">
-            <div class="field"><label for="vat">VAT registration number</label><input id="vat" type="text" placeholder="e.g. GB123456789"></div>
-            <div class="field"><label for="auth">Companies House authentication code</label><input id="auth" type="text" placeholder="6 characters"></div>
-            <div class="field"><label for="utr">Corporation Tax UTR</label><input id="utr" type="text" placeholder="10 digits"></div>
-            <div class="field"><label for="email">Email</label><input id="email" type="email" placeholder="name@company.com"></div>
-            <div class="field"><label for="tel">Telephone</label><input id="tel" type="text" placeholder="+44 ..."></div>
-          </div>
+        <div class="field">
+          <label>VAT number</label>
+          <input class="input" name="vat_number" />
+        </div>
+        <div class="field">
+          <label>VAT quarter end (e.g. Mar / 03 / March)</label>
+          <input class="input" name="vat_quarter" />
+        </div>
 
-          <div id="editError" class="error" style="display:none;margin-top:8px;"></div>
+        <div class="field">
+          <label>GOV ID (Gateway)</label>
+          <input class="input" name="gov_id" />
+        </div>
+        <div class="field">
+          <label>GOV password</label>
+          <input class="input" name="gov_password" />
+        </div>
 
-          <div class="bar">
-            <button class="button" id="cancelBtn" type="button">Cancel</button>
-            <button class="button primary" id="saveBtn" type="button">Save</button>
-          </div>
+        <div class="field">
+          <label>PAYE account office ref</label>
+          <input class="input" name="paye_office_ref" />
+        </div>
+        <div class="field">
+          <label>Employer reference</label>
+          <input class="input" name="employer_ref" />
+        </div>
+
+        <div class="field" style="grid-column:1/-1">
+          <label>Related companies (comma separated numbers)</label>
+          <input class="input" name="related_companies" />
+        </div>
+
+        <div class="field" style="grid-column:1/-1">
+          <label>Notes</label>
+          <textarea class="input" rows="3" name="notes"></textarea>
         </div>
       </div>
-    </div>
 
-    <script>
-      // Drawer push
-      document.getElementById('menuBtn').addEventListener('click',()=>{document.body.classList.toggle('drawer-open')});
-      document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('drawer-open')});
-      const p=location.pathname;
-      document.querySelectorAll('.drawer nav a').forEach(a=>{const w=a.dataset.path; if(p===w||(w!=='/'&&p.startsWith(w)))a.classList.add('active')});
+      <div style="display:flex;justify-content:flex-end;margin-top:12px">
+        <button class="btn" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
 
-      // Edit modal
-      const modal=document.getElementById('editModal'), closeEdit=document.getElementById('closeEdit'), cancelBtn=document.getElementById('cancelBtn'), saveBtn=document.getElementById('saveBtn');
-      const infoBox=document.getElementById('companyInfo'), errBox=document.getElementById('editError');
-      const vatInput=document.getElementById('vat'), authInput=document.getElementById('auth'), utrInput=document.getElementById('utr'), emailInput=document.getElementById('email'), telInput=document.getElementById('tel');
-      let currentNumber=null;
-      const escapeHtml=s=>(s||'').toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-      const showModal=()=>{modal.classList.add('show');modal.setAttribute('aria-hidden','false')};
-      const hideModal=()=>{modal.classList.remove('show');modal.setAttribute('aria-hidden','true')};
+  <style>
+    .grid-2{display:grid;grid-template-columns:1fr 1fr}
+    .field label{display:block;font-size:12px;color:#6b7280;margin-bottom:4px}
+    .row-open{cursor:pointer}
+    .row-open a,.row-open button,.row-open form{cursor:auto} /* keep native cursor on controls */
+  </style>
 
-      async function loadCompany(number){
-        infoBox.textContent='Loading…'; errBox.style.display='none';
-        try{
-          const res=await fetch(`/api/companies/${encodeURIComponent(number)}`); const j=await res.json();
-          if(!res.ok||j.error) throw new Error(j.error||`HTTP ${res.status}`);
-          const d=j.data||{};
-          infoBox.innerHTML=`<div class="kv"><b>Name</b> ${escapeHtml(d.name||'')}</div><div class="kv"><b>Number</b> <code class="inline">${escapeHtml(number)}</code></div><div class="kv"><b>Status</b> ${escapeHtml(d.status||'-')}</div><div class="kv"><b>Created</b> ${escapeHtml(d.created||'-')}</div><div class="kv"><b>Address</b> ${escapeHtml(d.address||'-')}</div>`;
-          vatInput.value=d.vat_number||''; authInput.value=d.authentication_code||''; utrInput.value=d.utr||''; emailInput.value=d.email||''; telInput.value=d.telephone||'';
-        }catch(e){ infoBox.textContent=''; errBox.textContent='Error: '+(e.message||'Unknown error'); errBox.style.display='block'; }
+  <script>
+    (function(){
+      const addBtn  = document.getElementById('add-update');
+      const addNumber = document.getElementById('add-number');
+      const addName   = document.getElementById('add-name');
+
+      // Add / Update action -> POST /companies (number, optional name)
+      addBtn?.addEventListener('click', async () => {
+        const number = addNumber.value.trim();
+        const name   = addName.value.trim();
+        if (!number) { alert('Please type a company number'); return; }
+
+        const fd = new FormData();
+        fd.append('_token', '{{ csrf_token() }}');
+        fd.append('number', number);
+        if (name) fd.append('name', name);
+
+        const r = await fetch('{{ route('companies.store') }}', { method:'POST', body: fd });
+        if (r.redirected) window.location = r.url; else location.reload();
+      });
+
+      // Modal logic
+      const dlg = document.getElementById('edit-modal');
+      const closeBtn = document.getElementById('edit-close');
+      const form = document.getElementById('edit-form');
+      const title = document.getElementById('edit-title');
+      const sub   = document.getElementById('edit-subtitle');
+
+      function fillForm(meta){
+        const set = (name, v) => { const el = form.querySelector(`[name="${name}"]`); if (el) el.value = v ?? ''; };
+        set('authentication_code', meta.authentication_code);
+        set('utr',                meta.utr);
+        set('registered_office',  meta.registered_office);
+        set('vat_number',         meta.vat_number);
+        set('vat_quarter',        meta.vat_quarter ?? meta.vat_quarter_end ?? meta.vat_qtr ?? meta.vat_quarter_month ?? meta.vat_anchor ?? meta.vat_month);
+        set('gov_id',             meta.gov_id);
+        set('gov_password',       meta.gov_password);
+        set('paye_office_ref',    meta.paye_office_ref);
+        set('employer_ref',       meta.employer_ref);
+        set('related_companies',  Array.isArray(meta.related_companies) ? meta.related_companies.join(',') : (meta.related_companies ?? ''));
+        set('notes',              meta.notes);
       }
-      async function saveCompany(){
-        if(!currentNumber) return;
-        errBox.style.display='none'; saveBtn.disabled=true; saveBtn.textContent='Saving…';
-        try{
-          const csrf=document.querySelector('meta[name="csrf-token"]').content;
-          const res=await fetch(`/api/companies/${encodeURIComponent(currentNumber)}`,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':csrf},body:JSON.stringify({vat_number:vatInput.value.trim()||null,authentication_code:authInput.value.trim()||null,utr:utrInput.value.trim()||null,email:emailInput.value.trim()||null,telephone:telInput.value.trim()||null})});
-          const j=await res.json().catch(()=>({})); if(!res.ok||j.saved===false) throw new Error(j.message||`HTTP ${res.status}`);
-          window.location.reload();
-        }catch(e){ errBox.textContent='Save failed: '+(e.message||'Unknown error'); errBox.style.display='block'; saveBtn.disabled=false; saveBtn.textContent='Save'; }
+
+      function openModal(number, name, meta){
+        title.textContent = `Edit company ${number || ''}`;
+        sub.textContent   = name || '';
+        fillForm(meta || {});
+        form.action = '{{ url('/companies') }}/' + encodeURIComponent(number || '') + '/meta';
+        dlg.showModal();
       }
 
-      document.addEventListener('click',e=>{const btn=e.target.closest('.editBtn'); if(!btn) return; e.preventDefault(); currentNumber=btn.dataset.number; showModal(); loadCompany(currentNumber);});
-      closeEdit.addEventListener('click',hideModal);
-      cancelBtn.addEventListener('click',hideModal);
-      modal.addEventListener('click',e=>{if(e.target===modal)hideModal()});
-      document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal.classList.contains('show'))hideModal()});
-      saveBtn.addEventListener('click',saveCompany);
-    </script>
-  </body>
-</html>
+      // Dedicated Edit / View buttons
+      document.querySelectorAll('.open-edit').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // don’t let row click also trigger
+          const number = btn.dataset.number || '';
+          const name   = btn.dataset.name   || '';
+          const meta   = JSON.parse(btn.dataset.meta || '{}');
+          openModal(number, name, meta);
+        });
+      });
+
+      // Click on the whole row (except links/buttons/forms) opens modal
+      document.querySelectorAll('tr.row-open').forEach(tr => {
+        tr.addEventListener('click', (e) => {
+          // Ignore clicks on controls/links/forms inside the row
+          if (e.target.closest('a,button,form,input,select,textarea')) return;
+          const number = tr.dataset.number || '';
+          const name   = tr.dataset.name   || '';
+          const meta   = JSON.parse(tr.dataset.meta || '{}');
+          openModal(number, name, meta);
+        });
+      });
+
+      closeBtn?.addEventListener('click', () => dlg.close());
+    })();
+  </script>
+@endsection

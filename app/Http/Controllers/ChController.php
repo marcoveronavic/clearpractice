@@ -3,234 +3,113 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Http\JsonResponse;
 
 class ChController extends Controller
 {
     /**
-     * Small helper to call the Companies House API.
-     *
-     * @param  string  $path  e.g. "/search/companies" or "/company/{number}"
-     * @param  array   $query Query string params
-     * @return array          Decoded JSON
-     *
-     * @throws \RuntimeException on API error
+     * Simple page that shows the CH search UI (resources/views/ch.blade.php).
      */
-    private function callApi(string $path, array $query = []): array
+    public function page()
     {
-        $base    = rtrim(env('CH_BASE', 'https://api.company-information.service.gov.uk'), '/');
-        $timeout = (int) env('CH_TIMEOUT', 20);
-        $key     = env('CH_API_KEY');
-
-        if (!$key) {
-            throw new \RuntimeException('Missing CH_API_KEY in .env');
-        }
-
-        $resp = Http::withBasicAuth($key, '')
-            ->timeout($timeout)
-            ->acceptJson()
-            ->get($base . $path, $query);
-
-        if (!$resp->successful()) {
-            $body = $resp->json() ?? $resp->body();
-            throw new \RuntimeException("Companies House API error (HTTP {$resp->status()}): " . (is_string($body) ? substr($body, 0, 200) : json_encode($body)));
-        }
-
-        return (array) $resp->json();
+        return view('ch');
     }
 
     /**
-     * GET /api/ch?q=term  → JSON search results (used by the /ch page)
+     * Helper cURL request to Companies House API.
      */
-    public function search(Request $request): JsonResponse
+    private function chRequest(string $path): ?array
     {
-        $q = trim($request->query('q', ''));
+        $base = rtrim(env('CH_BASE', 'https://api.company-information.service.gov.uk'), '/');
+        $key  = env('CH_API_KEY', '');
+
+        // If no API key, fail gracefully (UI will just show no results)
+        if ($key === '') {
+            return null;
+        }
+
+        $url = $base . '/' . ltrim($path, '/');
+
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT        => 20,
+            CURLOPT_HTTPAUTH       => CURLAUTH_BASIC,
+            CURLOPT_USERPWD        => $key . ':',
+            CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+        ]);
+
+        $body = curl_exec($ch);
+        $err  = curl_error($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($err || $code < 200 || $code >= 300) {
+            return null;
+        }
+
+        $json = json_decode($body, true);
+        return is_array($json) ? $json : null;
+    }
+
+    /**
+     * AJAX: /api/ch?q=tesco
+     * Returns a compact list your autocomplete uses.
+     */
+    public function search(Request $request)
+    {
+        $q = trim((string) $request->query('q', ''));
         if ($q === '') {
             return response()->json(['data' => []]);
         }
 
-        try {
-            $json = $this->callApi('/search/companies', [
-                'q' => $q,
-                'items_per_page' => 10,
-            ]);
-
-            $items = collect($json['items'] ?? [])->map(function ($it) {
-                return [
-                    'name'    => $it['title'] ?? null,
-                    'number'  => $it['company_number'] ?? null,
-                    'status'  => $it['company_status'] ?? null,
-                    'address' => $it['address_snippet'] ?? null,
-                    'date'    => $it['date_of_creation'] ?? null,
-                ];
-            })->values();
-
-            return response()->json(['data' => $items]);
-        } catch (\Throwable $e) {
-            return response()->json(['error' => 'Exception', 'message' => $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * Map an officer item to a compact array.
-     */
-    private function mapOfficer(array $it): array
-    {
-        $dob = $it['date_of_birth'] ?? null; // usually month + year only
-        $dobStr = null;
-        if (is_array($dob)) {
-            $y = $dob['year'] ?? null;
-            $m = $dob['month'] ?? null;
-            if ($y && $m) {
-                $dobStr = sprintf('%02d/%04d', (int)$m, (int)$y);
-            } elseif ($y) {
-                $dobStr = (string)$y;
-            }
+        $json = $this->chRequest('search/companies?q=' . rawurlencode($q) . '&items_per_page=10');
+        if (!$json || empty($json['items'])) {
+            return response()->json(['data' => []]);
         }
 
-        $addr = $it['address'] ?? [];
-        $address = implode(', ', array_filter([
-            $addr['premises'] ?? null,
-            $addr['address_line_1'] ?? null,
-            $addr['address_line_2'] ?? null,
-            $addr['locality'] ?? null,
-            $addr['region'] ?? null,
-            $addr['postal_code'] ?? null,
-            $addr['country'] ?? null,
-        ]));
+        $data = [];
+        foreach ($json['items'] as $it) {
+            $data[] = [
+                'name'    => $it['title'] ?? '',
+                'number'  => $it['company_number'] ?? '',
+                'status'  => $it['company_status'] ?? '',
+                'address' => $it['address_snippet'] ?? '',
+                'date'    => $it['date_of_creation'] ?? null,
+            ];
+        }
 
-        return [
-            'name' => $it['name'] ?? null,
-            'role' => $it['officer_role'] ?? null,
-            'appointed_on' => $it['appointed_on'] ?? null,
-            'resigned_on'  => $it['resigned_on'] ?? null,
-            'nationality'  => $it['nationality'] ?? null,
-            'country_of_residence' => $it['country_of_residence'] ?? null,
-            'occupation'   => $it['occupation'] ?? null,
-            'dob'          => $dobStr,
-            'address'      => $address ?: null,
-        ];
+        return response()->json(['data' => $data]);
     }
 
     /**
-     * Map a PSC item to a compact array.
-     */
-    private function mapPsc(array $it): array
-    {
-        // Name can vary by kind; fallbacks cover individual/corporate/legal-person
-        $name = $it['name'] ??
-                ($it['name_elements']['forename'] ?? null) .
-                (isset($it['name_elements']['forename'], $it['name_elements']['surname']) ? ' ' : '') .
-                ($it['name_elements']['surname'] ?? '') ??
-                $it['legal_person_name'] ??
-                $it['company_name'] ??
-                null;
-
-        $addr = $it['address'] ?? [];
-        $address = implode(', ', array_filter([
-            $addr['premises'] ?? null,
-            $addr['address_line_1'] ?? null,
-            $addr['address_line_2'] ?? null,
-            $addr['locality'] ?? null,
-            $addr['region'] ?? null,
-            $addr['postal_code'] ?? null,
-            $addr['country'] ?? null,
-        ]));
-
-        $noc = $it['natures_of_control'] ?? [];
-
-        return [
-            'name'        => $name ?: null,
-            'kind'        => $it['kind'] ?? null,
-            'notified_on' => $it['notified_on'] ?? null,
-            'ceased_on'   => $it['ceased_on'] ?? null,
-            'address'     => $address ?: null,
-            'natures'     => is_array($noc) ? array_values($noc) : [],
-        ];
-    }
-
-    /**
-     * GET /ch/company/{number} → HTML detail page for a company.
+     * Optional: /api/ch/company/{number}
+     * Fetches the company profile and returns a small subset.
      */
     public function company(string $number)
     {
-        $errors = [];
-        $company = [];
-
-        try {
-            // Company profile
-            $profile = $this->callApi('/company/' . urlencode($number));
-
-            $addr = $profile['registered_office_address'] ?? [];
-            $address = implode(', ', array_filter([
-                $addr['premises'] ?? null,
-                $addr['address_line_1'] ?? null,
-                $addr['address_line_2'] ?? null,
-                $addr['locality'] ?? null,
-                $addr['region'] ?? null,
-                $addr['postal_code'] ?? null,
-                $addr['country'] ?? null,
-            ]));
-
-            $company = [
-                'name'         => $profile['company_name'] ?? ($profile['title'] ?? $number),
-                'number'       => $profile['company_number'] ?? $number,
-                'status'       => $profile['company_status'] ?? null,
-                'type'         => $profile['type'] ?? null,
-                'jurisdiction' => $profile['jurisdiction'] ?? null,
-                'created'      => $profile['date_of_creation'] ?? null,
-                'sic_codes'    => $profile['sic_codes'] ?? [],
-                'address'      => $address ?: null,
-            ];
-        } catch (\Throwable $e) {
-            abort(404, 'Company not found: ' . $number);
+        $json = $this->chRequest('company/' . rawurlencode($number));
+        if (!$json) {
+            return response()->json(['error' => 'Not found'], 404);
         }
 
-        // Officers (fetch but don’t fail the whole page)
-        $directors = [];
-        try {
-            $officersJson = $this->callApi('/company/' . urlencode($number) . '/officers', [
-                'items_per_page' => 50,
-            ]);
-            $officers = collect($officersJson['items'] ?? [])
-                ->map(fn($it) => $this->mapOfficer($it))
-                ->values();
+        $acc = $json['accounts'] ?? [];
+        $cs  = $json['confirmation_statement'] ?? [];
 
-            // Keep only active directors (no resigned_on, role contains "director")
-            $directors = $officers->filter(function ($o) {
-                return $o['resigned_on'] === null && is_string($o['role']) && stripos($o['role'], 'director') !== false;
-            })->values()->all();
-        } catch (\Throwable $e) {
-            $errors['officers'] = $e->getMessage();
-        }
-
-        // PSCs (fetch but don’t fail the whole page)
-        $pscs = [];
-        try {
-            $pscsJson = $this->callApi('/company/' . urlencode($number) . '/persons-with-significant-control', [
-                'items_per_page' => 50,
-            ]);
-            $pscs = collect($pscsJson['items'] ?? [])
-                ->map(fn($it) => $this->mapPsc($it))
-                ->values()
-                ->all();
-        } catch (\Throwable $e) {
-            $errors['psc'] = $e->getMessage();
-        }
-
-        // External links
-        $company['links'] = [
-            'companies_house' => "https://find-and-update.company-information.service.gov.uk/company/" . urlencode($company['number']),
-            'officers'        => "https://find-and-update.company-information.service.gov.uk/company/" . urlencode($company['number']) . "/officers",
-            'psc'             => "https://find-and-update.company-information.service.gov.uk/company/" . urlencode($company['number']) . "/persons-with-significant-control",
-        ];
-
-        return view('company', [
-            'company'   => $company,
-            'directors' => $directors,
-            'pscs'      => $pscs,
-            'errors'    => $errors,
+        return response()->json([
+            'number'  => $json['company_number'] ?? $number,
+            'name'    => $json['company_name'] ?? '',
+            'status'  => $json['company_status'] ?? '',
+            'address' => $json['registered_office_address'] ?? [],
+            'created' => $json['date_of_creation'] ?? null,
+            'accounts' => [
+                'next_due'        => $acc['next_due']        ?? null,
+                'next_made_up_to' => $acc['next_made_up_to'] ?? null,
+            ],
+            'confirmation_statement' => [
+                'next_due'        => $cs['next_due']        ?? null,
+                'next_made_up_to' => $cs['next_made_up_to'] ?? null,
+            ],
         ]);
     }
 }

@@ -3,51 +3,86 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Schema;
-use App\Models\Client;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ClientsQuickController extends Controller
 {
-    // POST /api/clients/quick-add  (JSON)
-    // Body: { name: "Director Name", company_number?: "...", company_name?: "..." }
+    private function path(): string
+    {
+        return 'clients.json';
+    }
+
+    private function readAll(): array
+    {
+        if (!Storage::exists($this->path())) {
+            return [];
+        }
+        $raw = Storage::get($this->path());
+        $json = json_decode($raw, true);
+        return is_array($json) ? $json : [];
+    }
+
+    private function writeAll(array $rows): void
+    {
+        Storage::put($this->path(), json_encode(array_values($rows), JSON_PRETTY_PRINT));
+    }
+
+    /** GET /clients */
+    public function index()
+    {
+        $clients = $this->readAll();
+        return view('clients', compact('clients'));
+    }
+
+    /** POST /clients  (create or update) */
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'name'            => 'required|string|max:255',
-            'company_number'  => 'nullable|string|max:32',
-            'company_name'    => 'nullable|string|max:255',
-        ]);
+        $rows = $this->readAll();
 
-        if (!Schema::hasTable('clients') || !Schema::hasColumn('clients', 'name')) {
-            return response()->json(['ok' => false, 'error' => 'Clients table is missing (run migrations).'], 422);
+        $id = trim((string) $request->input('id', ''));
+
+        if ($id !== '') {
+            // update
+            foreach ($rows as &$r) {
+                if (($r['id'] ?? '') === $id) {
+                    $r['name']    = trim((string) $request->input('name', ''));
+                    $r['surname'] = trim((string) $request->input('surname', ''));
+                    $r['email']   = trim((string) $request->input('email', ''));
+                    $r['phone']   = trim((string) $request->input('phone', ''));
+                    $r['address'] = trim((string) $request->input('address', ''));
+                    $r['notes']   = trim((string) $request->input('notes', ''));
+                    break;
+                }
+            }
+            unset($r);
+            $this->writeAll($rows);
+            return redirect()->route('clients.index')->with('success', 'Client updated.');
         }
 
-        $cols = Schema::getColumnListing('clients');
+        // create
+        $rows[] = [
+            'id'         => Str::uuid()->toString(),
+            'name'       => trim((string) $request->input('name', '')),
+            'surname'    => trim((string) $request->input('surname', '')),
+            'email'      => trim((string) $request->input('email', '')),
+            'phone'      => trim((string) $request->input('phone', '')),
+            'address'    => trim((string) $request->input('address', '')),
+            'notes'      => trim((string) $request->input('notes', '')),
+            'created_at' => now()->format('Y-m-d H:i:s'),
+        ];
 
-        // Find-or-create by name (+ company_number when the column exists and was sent)
-        $query = ['name' => $data['name']];
-        if (in_array('company_number', $cols, true) && !empty($data['company_number'])) {
-            $query['company_number'] = $data['company_number'];
-        }
+        $this->writeAll($rows);
+        return redirect()->route('clients.index')->with('success', 'Client added.');
+    }
 
-        $client = Client::firstOrCreate($query);
-
-        // Fill optional columns if they exist
-        $updates = [];
-        if (in_array('company_name', $cols, true) && !empty($data['company_name'])) {
-            $updates['company_name'] = $data['company_name'];
-        }
-        if (!empty($updates)) {
-            $client->fill($updates)->save();
-        }
-
-        return response()->json([
-            'ok' => true,
-            'client' => [
-                'id'   => $client->id,
-                'name' => $client->name,
-            ],
-        ]);
+    /** DELETE /clients/{id} */
+    public function destroy(string $id)
+    {
+        $rows = $this->readAll();
+        $rows = array_values(array_filter($rows, fn ($r) => ($r['id'] ?? '') !== $id));
+        $this->writeAll($rows);
+        return redirect()->route('clients.index')->with('success', 'Client deleted.');
     }
 }
 
