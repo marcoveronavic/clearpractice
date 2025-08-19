@@ -10,6 +10,8 @@ use App\Http\Controllers\UsersController;
 use App\Http\Controllers\TasksController;
 use App\Http\Controllers\DeadlinesController;
 
+require __DIR__.'/leads.php';
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -78,3 +80,10 @@ Route::prefix('deadlines')->name('deadlines.')->group(function () {
     // Refresh CH data for all companies (button: “Aggiorna da CH”)
     Route::post('/refresh-all', [DeadlinesController::class, 'refreshAll'])->name('refreshAll');
 });
+
+require __DIR__.'/leads.php';
+
+if (app()->environment('local')) {
+    require __DIR__.'/dev.php';
+}
+
