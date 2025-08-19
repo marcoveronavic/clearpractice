@@ -4,25 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>ClearCash — simple, fast accounting</title>
-  <meta name="description" content="ClearCash helps you manage clients, tasks, documents and compliance in one clean workspace." />
-  <!-- Brand font (matches your app style) -->
+  <meta name="description" content="ClearPractice helps you manage clients, tasks, documents and compliance in one clean workspace." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/landing/styles.css" />
-  <link rel="icon" href="/landing/logo.svg" />
+  <link rel="icon" href="/landing/clearcash.png" />
 </head>
 <body>
   <header class="site-header">
     <div class="container header-inner">
       <a class="brand" href="/landing/">
-        <!-- Your provided ClearCash logo embedded inline (no extra files needed) -->
-        <img
-          class="logo"
-          alt="ClearCash logo"
-          src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAe8AAABhCAIAAABwJr6GAAAQAElEQVR4AexdB0BURxOeAURRQFFRwB5L................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................"
-        />
-        <span class="brand-name">ClearCash</span>
+        <img class="logo" src="/landing/clearcash.png" alt="ClearPractice logo" />
       </a>
       <nav class="nav" aria-label="Main">
         <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="navMenu" aria-label="Toggle menu">☰</button>
@@ -33,7 +26,8 @@
           <li><a href="#contact">Contact</a></li>
           <li class="divider" aria-hidden="true"></li>
           <li><a class="btn btn-ghost" href="/login">Sign in</a></li>
-          <li><a class="btn btn-primary" href="/register">Get started</a></li>
+          <!-- changed target -->
+          <li><a class="btn btn-primary" href="/landing/get-started.html">Get started</a></li>
         </ul>
       </nav>
     </div>
@@ -46,17 +40,16 @@
         <div class="hero-copy">
           <h1>Accounting that stays out of your way.</h1>
           <p class="lead">
-            ClearCash centralises clients, tasks and documents so you can focus on the work that matters.
+            ClearPractice centralises clients, tasks and documents so you can focus on the work that matters.
           </p>
           <div class="cta">
-            <a class="btn btn-primary btn-lg" href="/register">Start free</a>
+            <a class="btn btn-primary btn-lg" href="/landing/get-started.html">Start free</a>
             <a class="btn btn-ghost btn-lg" href="#features">See features</a>
           </div>
           <p class="trust">No credit card • GDPR-aware • Multi-user</p>
         </div>
 
         <div class="hero-visual" aria-hidden="true">
-          <!-- illustrative mockup -->
           <svg class="mockup" viewBox="0 0 640 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Product mockup">
             <defs>
               <linearGradient id="g" x1="0" x2="1">
@@ -71,115 +64,3 @@
             <rect x="204" y="164" width="412" height="60" rx="10" fill="#f1f5f9"/>
             <rect x="204" y="244" width="412" height="60" rx="10" fill="#f1f5f9"/>
             <rect x="204" y="324" width="412" height="60" rx="10" fill="#f1f5f9"/>
-            <circle cx="64" cy="120" r="18" fill="#0ea5e9"/>
-            <circle cx="64" cy="180" r="18" fill="#14b8a6"/>
-            <circle cx="64" cy="240" r="18" fill="#f59e0b"/>
-            <circle cx="64" cy="300" r="18" fill="#ef4444"/>
-          </svg>
-        </div>
-      </div>
-    </section>
-
-    <!-- Features -->
-    <section id="features" class="section">
-      <div class="container">
-        <h2>Everything you need to run your practice</h2>
-        <div class="grid features">
-          <article class="card">
-            <h3>Client CRM</h3>
-            <p>Companies & individuals with tags, notes and contact details.</p>
-          </article>
-          <article class="card">
-            <h3>Tasks & workflows</h3>
-            <p>Assign to team members and track status from “To do” to “Done”.</p>
-          </article>
-          <article class="card">
-            <h3>Documents</h3>
-            <p>Upload files to client profiles. Keep everything organised and searchable.</p>
-          </article>
-          <article class="card">
-            <h3>Email & reminders</h3>
-            <p>Automatic notifications for deadlines and follow-ups.</p>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- How it works -->
-    <section id="how" class="section alt">
-      <div class="container">
-        <h2>How it works</h2>
-        <ol class="steps">
-          <li><strong>Create your account</strong> in seconds.</li>
-          <li><strong>Add a client</strong> and invite your team.</li>
-          <li><strong>Create tasks</strong> and attach documents.</li>
-          <li><strong>Track progress</strong> with statuses and alerts.</li>
-        </ol>
-      </div>
-    </section>
-
-    <!-- Pricing -->
-    <section id="pricing" class="section">
-      <div class="container">
-        <h2>Simple pricing</h2>
-        <div class="grid pricing">
-          <article class="card price">
-            <h3>Starter</h3>
-            <div class="money">£0</div>
-            <p>For trials and solo use.</p>
-            <ul>
-              <li>Up to 3 clients</li>
-              <li>Tasks & reminders</li>
-              <li>Basic documents</li>
-            </ul>
-            <a class="btn btn-primary btn-block" href="/register">Start free</a>
-          </article>
-          <article class="card price featured">
-            <h3>Team</h3>
-            <div class="money">£29<span>/user</span></div>
-            <p>Everything you need to run a small practice.</p>
-            <ul>
-              <li>Unlimited clients</li>
-              <li>Workflows & email alerts</li>
-              <li>Advanced documents</li>
-            </ul>
-            <a class="btn btn-primary btn-block" href="/register">Try Team</a>
-          </article>
-          <article class="card price">
-            <h3>Firm</h3>
-            <div class="money">Custom</div>
-            <p>For larger firms & custom needs.</p>
-            <ul>
-              <li>SSO & custom roles</li>
-              <li>Priority support</li>
-              <li>Dedicated onboarding</li>
-            </ul>
-            <a class="btn btn-ghost btn-block" href="#contact">Talk to us</a>
-          </article>
-        </div>
-      </div>
-    </section>
-
-    <!-- Contact -->
-    <section id="contact" class="section alt">
-      <div class="container">
-        <h2>Talk to us</h2>
-        <p>Questions? Write to <a href="mailto:hello@clearpractice.app">hello@clearpractice.app</a>.</p>
-      </div>
-    </section>
-  </main>
-
-  <footer class="site-footer">
-    <div class="container footer-inner">
-      <p>© <span id="y"></span> ClearCash. All rights reserved.</p>
-      <nav aria-label="Footer">
-        <a href="#features">Features</a>
-        <a href="#pricing">Pricing</a>
-        <a href="/login">Sign in</a>
-      </nav>
-    </div>
-  </footer>
-
-  <script src="/landing/app.js" defer></script>
-</body>
-</html>

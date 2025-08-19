@@ -29,3 +29,4 @@ Thumbs.db
 !/storage/app/*.json
 !/storage/app/ch_deadlines/
 !/storage/app/ch_deadlines/*.json
+database/*.sqlite
