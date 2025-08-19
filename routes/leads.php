@@ -3,13 +3,28 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\LeadController;
 
-/* Lead onboarding (minimal, keeps your old left menu as-is) */
-Route::get('/lead/confirm/{token}', [LeadController::class, 'confirm'])->name('lead.confirm');
-Route::get('/lead/add-users',      [LeadController::class, 'showAddUsers'])->name('lead.users.show');
-Route::post('/lead/add-users',     [LeadController::class, 'storeUsers'])->name('lead.users.store');
-Route::post('/lead/resend',        [LeadController::class, 'resend'])->name('lead.resend');
-Route::get('/invite/{token}',      [LeadController::class, 'acceptInvite'])->name('invite.accept');
+/* === Opening page (create a new account / start a new practice) === */
+Route::get('/landing/get-started', [LeadController::class, 'showStart'])->name('lead.start.show');
 
-/* Practice workspace (new empty pages) */
-Route::get('/practice/{slug}',            [LeadController::class, 'practiceHome'])->name('practice.home');
-Route::get('/practice/{slug}/companies',  [LeadController::class, 'practiceCompanies'])->name('practice.companies');
+/* If someone browses to /get-started by GET, send them to the form above */
+Route::get('/get-started', fn () => redirect()->route('lead.start.show'))->name('lead.start.redirect');
+
+/* Form submit */
+Route::post('/get-started', [LeadController::class, 'start'])->name('lead.start');
+
+/* === Lead email confirmation -> Add users === */
+Route::get('/lead/confirm/{token}', [LeadController::class, 'confirm'])->name('lead.confirm');
+
+/* === Add users === */
+Route::get('/lead/add-users',  [LeadController::class, 'showAddUsers'])->name('lead.users.show');
+Route::post('/lead/add-users', [LeadController::class, 'storeUsers'])->name('lead.users.store');
+
+/* === Resend confirmation (optional) === */
+Route::post('/lead/resend', [LeadController::class, 'resend'])->name('lead.resend');
+
+/* === Invite acceptance === */
+Route::get('/invite/{token}', [LeadController::class, 'acceptInvite'])->name('invite.accept');
+
+/* === Practice workspace pages === */
+Route::get('/practice/{slug}',           [LeadController::class, 'practiceHome'])->name('practice.home');
+Route::get('/practice/{slug}/companies', [LeadController::class, 'practiceCompanies'])->name('practice.companies');
