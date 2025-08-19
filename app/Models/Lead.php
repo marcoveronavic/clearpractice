@@ -8,7 +8,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Lead extends Model
 {
     protected $fillable = [
-        'first_name','last_name','email','phone','practice','token','confirmed_at',
+        'first_name',
+        'last_name',
+        'email',
+        'phone',
+        'practice',
+        'practice_slug',   // NEW
+        'home_path',       // NEW
+        'token',
+        'confirmed_at',
     ];
 
     protected $casts = [

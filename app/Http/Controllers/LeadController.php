@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Mail\LeadConfirmMail;
+use App\Mail\LeadUserInviteMail;
 use App\Models\Lead;
 use App\Models\LeadUser;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
@@ -16,6 +18,7 @@ class LeadController extends Controller
         return view('landing.get-started');
     }
 
+    // Create/update a Lead and email a confirmation link
     public function start(Request $request)
     {
         $data = $request->validate([
@@ -28,14 +31,25 @@ class LeadController extends Controller
 
         $lead = Lead::firstOrNew(['email' => $data['email']]);
         $lead->fill($data);
+
+        // Ensure each practice has its own workspace path: /practice/{slug}
+        if (empty($lead->practice_slug)) {
+            $lead->practice_slug = $this->uniqueSlug($lead->practice);
+        }
+        if (empty($lead->home_path)) {
+            $lead->home_path = '/practice/'.$lead->practice_slug;
+        }
+
         $lead->token = $lead->token ?: Str::random(40);
         $lead->save();
 
-        Mail::to($lead->email)->send(new LeadConfirmMail($lead));
+        try { Mail::to($lead->email)->send(new LeadConfirmMail($lead)); }
+        catch (\Throwable $e) { Log::error('Lead confirm mail failed: '.$e->getMessage()); }
 
         return view('landing.thanks', ['lead' => $lead]);
     }
 
+    // Lead clicks confirm in the email -> go to Add Users
     public function confirm(string $token)
     {
         $lead = Lead::where('token', $token)->firstOrFail();
@@ -46,6 +60,7 @@ class LeadController extends Controller
         return redirect()->route('lead.users.show', ['t' => $lead->token]);
     }
 
+    // Add Users page (requires lead token)
     public function showAddUsers(Request $request)
     {
         $token = $request->query('t');
@@ -55,14 +70,27 @@ class LeadController extends Controller
             return redirect()->route('lead.confirm', ['token' => $token]);
         }
 
+        // Keep practice context (does NOT change your left menu links)
+        session([
+            'practice_name'  => $lead->practice,
+            'practice_slug'  => $lead->practice_slug,
+            'practice_token' => $lead->token,
+        ]);
+
         $users = $lead->users()->latest()->get();
         return view('landing.add-users', ['lead' => $lead, 'users' => $users]);
     }
 
+    // Save users, send invites, then redirect to the practice home_path
     public function storeUsers(Request $request)
     {
         $token = $request->input('t');
         $lead = Lead::where('token', $token)->firstOrFail();
+
+        // Backfill if missing
+        if (empty($lead->practice_slug))  $lead->practice_slug = $this->uniqueSlug($lead->practice);
+        if (empty($lead->home_path))      $lead->home_path = '/practice/'.$lead->practice_slug;
+        $lead->save();
 
         $validated = $request->validate([
             'users' => ['required','array','min:1'],
@@ -72,15 +100,106 @@ class LeadController extends Controller
         ]);
 
         foreach ($validated['users'] as $u) {
-            LeadUser::create([
+            $invite = LeadUser::create([
                 'lead_id'    => $lead->id,
                 'first_name' => $u['first_name'],
                 'last_name'  => $u['last_name'],
                 'email'      => $u['email'],
+                'token'      => Str::random(40),
+                'invited_at' => now(),
             ]);
+            try { Mail::to($invite->email)->send(new LeadUserInviteMail($lead, $invite)); }
+            catch (\Throwable $e) { Log::error('Invite mail failed: '.$e->getMessage()); }
         }
 
-        return redirect()->route('lead.users.show', ['t' => $lead->token])
-            ->with('ok', 'Users added.');
+        session([
+            'practice_name'  => $lead->practice,
+            'practice_slug'  => $lead->practice_slug,
+            'practice_token' => $lead->token,
+        ]);
+
+        return redirect($lead->home_path)->with('ok', 'Invitations sent.');
+    }
+
+    // Invitee clicks accept -> verify -> go to creator’s practice home
+    public function acceptInvite(string $token)
+    {
+        $user = LeadUser::where('token', $token)->firstOrFail();
+        if (!$user->accepted_at) {
+            $user->accepted_at = now();
+            $user->save();
+        }
+
+        $lead = $user->lead()->first();
+        if ($lead) {
+            if (empty($lead->practice_slug)) $lead->practice_slug = $this->uniqueSlug($lead->practice);
+            if (empty($lead->home_path))     $lead->home_path = '/practice/'.$lead->practice_slug;
+            $lead->save();
+
+            session([
+                'practice_name'  => $lead->practice,
+                'practice_slug'  => $lead->practice_slug,
+                'practice_token' => $lead->token,
+            ]);
+
+            return redirect($lead->home_path)->with('ok', 'Invitation accepted. Welcome!');
+        }
+
+        return redirect('/')->with('ok', 'Invitation accepted.');
+    }
+
+    // === THE METHOD YOU ASKED FOR (full code) ===
+    public function practiceHome(string $slug)
+    {
+        $lead = \App\Models\Lead::where('practice_slug', $slug)->firstOrFail();
+
+        // keep name/slug/token visible for this session
+        session([
+            'practice_name'  => $lead->practice,
+            'practice_slug'  => $lead->practice_slug,
+            'practice_token' => $lead->token,
+        ]);
+
+        return view('practice.home', ['lead' => $lead]);
+    }
+
+    // Optional empty Companies page for the new workspace (keeps old menu intact)
+    public function practiceCompanies(string $slug)
+    {
+        $lead = Lead::where('practice_slug', $slug)->firstOrFail();
+        session([
+            'practice_name'  => $lead->practice,
+            'practice_slug'  => $lead->practice_slug,
+            'practice_token' => $lead->token,
+        ]);
+        return view('practice.companies', ['lead' => $lead]);
+    }
+
+    // Util: generate a unique slug
+    private function uniqueSlug(string $name): string
+    {
+        $base = Str::slug($name);
+        $slug = $base ?: 'practice';
+        $i = 1;
+        while (Lead::where('practice_slug', $slug)->exists()) { $i++; $slug = $base.'-'.$i; }
+        return $slug;
+    }
+
+    // Optional resend
+    public function resend(Request $request)
+    {
+        $data = $request->validate(['email' => ['required','email']]);
+        $lead = Lead::where('email', $data['email'])->first();
+        if (!$lead) return back()->with('err', 'No starter form found for that email.');
+
+        if (empty($lead->practice_slug)) $lead->practice_slug = $this->uniqueSlug($lead->practice);
+        if (empty($lead->home_path))     $lead->home_path = '/practice/'.$lead->practice_slug;
+        $lead->token = $lead->token ?: Str::random(40);
+        $lead->save();
+
+        try { Mail::to($lead->email)->send(new LeadConfirmMail($lead)); }
+        catch (\Throwable $e) { Log::error('Lead confirm mail failed: '.$e->getMessage()); }
+
+        return back()->with('ok', 'Confirmation email re-sent.');
     }
 }
