@@ -16,6 +16,16 @@ use App\Http\Controllers\DeadlinesController;
 |--------------------------------------------------------------------------
 */
 
+
+Route::middleware('auth')->prefix('{practice}')->group(function () {
+    // CH Search under a practice slug (more pages will be added next step)
+    Route::get('/ch', function (string $practice) {
+        // You can pass $practice to the view if you want to show it in the header
+        return view('ch', ['practice' => $practice]);
+    })->name('practice.ch');
+});
+
+
 Route::get('/', fn () => redirect()->route('ch.page'));
 
 /* ------------------- Companies House search ------------------- */
@@ -77,6 +87,17 @@ Route::prefix('deadlines')->name('deadlines.')->group(function () {
 
     // Refresh CH data for all companies (button: “Aggiorna da CH”)
     Route::post('/refresh-all', [DeadlinesController::class, 'refreshAll'])->name('refreshAll');
+
+
+// Redirect default "home" to our landing page.
+// Laravel's guest middleware redirects authenticated users here.
+Route::get('/home', function () {
+    return redirect('/landing');
+})->name('home');
+
+
+
+
 });
 require __DIR__ . '/landing.php';
 require __DIR__ . '/landing.php';
