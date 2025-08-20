@@ -7,18 +7,24 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('individuals', function (Blueprint $table) {
-            $table->id();
-            $table->string('first_name', 100);
-            $table->string('last_name', 100);
-            $table->string('email')->unique();
-            $table->string('phone', 50)->nullable();
-            $table->timestamps();
-        });
+        // Only create if it does NOT already exist.
+        if (! Schema::hasTable('individuals')) {
+            Schema::create('individuals', function (Blueprint $table) {
+                $table->id();
+                $table->string('first_name');
+                $table->string('last_name');
+                $table->string('email');
+                $table->string('phone')->nullable();
+                $table->timestamps();
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::dropIfExists('individuals');
+        // Rollback ONLY if the table exists.
+        if (Schema::hasTable('individuals')) {
+            Schema::drop('individuals');
+        }
     }
 };

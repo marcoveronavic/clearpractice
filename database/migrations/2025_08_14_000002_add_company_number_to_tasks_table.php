@@ -7,19 +7,21 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::table('tasks', function (Blueprint $table) {
-            if (!Schema::hasColumn('tasks', 'company_number')) {
-                $table->string('company_number', 20)->nullable()->after('user_id');
-            }
-        });
+        // Only add the column if the tasks table actually exists.
+        if (Schema::hasTable('tasks') && !Schema::hasColumn('tasks', 'company_number')) {
+            Schema::table('tasks', function (Blueprint $table) {
+                $table->string('company_number')->nullable();
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('tasks', function (Blueprint $table) {
-            if (Schema::hasColumn('tasks', 'company_number')) {
+        // Only try to drop if both the table and column exist.
+        if (Schema::hasTable('tasks') && Schema::hasColumn('tasks', 'company_number')) {
+            Schema::table('tasks', function (Blueprint $table) {
                 $table->dropColumn('company_number');
-            }
-        });
+            });
+        }
     }
 };
