@@ -78,3 +78,7 @@ Route::prefix('deadlines')->name('deadlines.')->group(function () {
     // Refresh CH data for all companies (button: “Aggiorna da CH”)
     Route::post('/refresh-all', [DeadlinesController::class, 'refreshAll'])->name('refreshAll');
 });
+require __DIR__ . '/landing.php';
+require __DIR__ . '/landing.php';
+require __DIR__ . '/auth_manual.php';
+require __DIR__ . '/demo.php';
