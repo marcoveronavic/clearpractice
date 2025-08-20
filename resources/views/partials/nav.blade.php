@@ -1,30 +1,19 @@
-{{-- Shared drawer + menu button (includes "Users") --}}
-<button class="menu-btn" id="menuBtn">☰</button>
+{{-- Demo-aware top nav --}}
+@php
+    $prefix = request()->is('demo/*') ? '/demo' : '';
+    $isActive = function (string $uri) {
+        $p = trim($uri, '/');
+        return request()->is($p) || request()->is($p.'/*')
+            ? 'font-semibold text-gray-900'
+            : 'text-gray-600 hover:text-gray-900';
+    };
+@endphp
 
-<div class="drawer" id="drawer">
-  <header>Navigation</header>
-  <nav>
-    <a href="/companies"    data-path="/companies">Companies</a>
-    <a href="/deadlines"    data-path="/deadlines">Deadlines</a>
-    <a href="/ch"           data-path="/ch">Companies House Search</a>
-    <a href="/tasks"        data-path="/tasks">Tasks</a>
-    <a href="/individuals"  data-path="/individuals">Individuals</a>
-    <a href="/users"        data-path="/users">Users</a>
-  </nav>
-</div>
-
-<script>
-  // Toggle drawer + close on ESC
-  (function () {
-    const btn = document.getElementById('menuBtn');
-    if (btn) btn.addEventListener('click', () => document.body.classList.toggle('drawer-open'));
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') document.body.classList.remove('drawer-open'); });
-
-    // Mark active link
-    const p = location.pathname;
-    document.querySelectorAll('.drawer nav a').forEach(a => {
-      const w = a.dataset.path || a.getAttribute('href');
-      if (p === w || (w !== '/' && p.startsWith(w))) a.classList.add('active');
-    });
-  }());
-</script>
+<nav class="flex items-center gap-4 px-4 py-2 border-b border-gray-200 bg-white">
+    <a href="{{ $prefix }}/ch"         class="{{ $isActive($prefix.'/ch') }}">CH Search</a>
+    <a href="{{ $prefix }}/companies"  class="{{ $isActive($prefix.'/companies') }}">Companies</a>
+    <a href="{{ $prefix }}/clients"    class="{{ $isActive($prefix.'/clients') }}">Clients</a>
+    <a href="{{ $prefix }}/tasks"      class="{{ $isActive($prefix.'/tasks') }}">Tasks</a>
+    <a href="{{ $prefix }}/users"      class="{{ $isActive($prefix.'/users') }}">Users</a>
+    <a href="{{ $prefix }}/deadlines"  class="{{ $isActive($prefix.'/deadlines') }}">Deadlines</a>
+</nav>
