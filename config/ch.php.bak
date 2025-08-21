@@ -1,0 +1,12 @@
+<?php
+
+return [
+    // Base URL for Companies House REST API
+    'base'    => env('CH_BASE', 'https://api.company-information.service.gov.uk'),
+
+    // Your API key (we already put this in .env)
+    'key'     => env('CH_API_KEY'),
+
+    // Optional: HTTP client timeout in seconds
+    'timeout' => env('CH_TIMEOUT', 15),
+];

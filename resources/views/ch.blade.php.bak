@@ -1,0 +1,117 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Companies House quick search</title>
+  <style>
+    body { font: 16px system-ui, Arial; margin: 24px; }
+    .row { display:flex; gap:12px; align-items:center }
+    .small { font-size:12px; color:#666 }
+    #list { max-height:240px; overflow:auto; border:1px solid #ddd; border-radius:8px; padding:8px; margin-top:8px; display:none }
+    .item { padding:6px 8px; border-radius:6px; cursor:pointer }
+    .item:hover { background:#f2f2f2 }
+    pre { background:#fafafa; border:1px solid #eee; border-radius:8px; padding:12px; overflow:auto }
+  </style>
+</head>
+<body>
+  <h1>Companies House quick search</h1>
+
+  <div class="row">
+    <input id="q" type="text" placeholder="Type company name…" autofocus
+           style="flex:1;padding:10px 12px;border:1px solid #ccc;border-radius:8px"/>
+    <button id="clear" class="small">Clear</button>
+  </div>
+
+  <div id="list"></div>
+  <div id="result"></div>
+
+<script>
+const q = document.getElementById('q');
+const list = document.getElementById('list');
+const result = document.getElementById('result');
+const clearBtn = document.getElementById('clear');
+let controller;
+
+q.addEventListener('input', async () => {
+  const term = q.value.trim();
+  list.innerHTML = '';
+  list.style.display = 'none';
+  if (term.length < 3) return;
+
+  controller?.abort();
+  controller = new AbortController();
+
+  try {
+    const r = await fetch(`/api/ch/search?q=${encodeURIComponent(term)}&limit=10`, {signal: controller.signal});
+    if (!r.ok) throw new Error('Search failed');
+    const data = await r.json();
+    const items = (data.items || data.results || []).slice(0, 10);
+    if (!items.length) return;
+
+    list.style.display = 'block';
+    list.innerHTML = items.map(it => {
+      const name = it.title || it.company_name || it.name || '—';
+      const num  = it.company_number || it.number || '';
+      const addr = it.address_snippet || it.address || '';
+      return `<div class="item" data-num="${num}">
+        <div><strong>${escapeHtml(name)}</strong> <span class="small">(${num})</span></div>
+        <div class="small">${escapeHtml(addr)}</div>
+      </div>`;
+    }).join('');
+  } catch {}
+});
+
+list.addEventListener('click', async (e) => {
+  const item = e.target.closest('.item');
+  if (!item) return;
+  const num = item.dataset.num;
+  list.style.display = 'none';
+  q.value = item.textContent.trim();
+  await loadCompany(num);
+});
+
+clearBtn.onclick = () => {
+  q.value = '';
+  list.style.display = 'none';
+  result.innerHTML = '';
+  q.focus();
+};
+
+async function loadCompany(number) {
+  result.innerHTML = '<div class="small">Loading…</div>';
+  const r = await fetch(`/api/ch?number=${encodeURIComponent(number)}`);
+  if (!r.ok) { result.textContent = 'Error loading company.'; return; }
+  const data = await r.json();
+
+  const c = data.company || {};
+  const ro = c.registered_office || c.registered_office_address || {};
+  const acc = c.accounts || {};
+  const cs  = c.confirmation || c.confirmation_statement || {};
+  const directors = (data.directors || []).map(d => d.name || d).slice(0, 5);
+  const pscs = (data.pscs || []).map(p => p.name || p).slice(0, 5);
+
+  result.innerHTML = `
+    <h2>${escapeHtml(c.name || 'Company')}</h2>
+    <div class="small">No. ${c.number || c.company_number || ''}</div>
+    <p><strong>Registered office:</strong> ${escapeHtml(
+      [ro.address_line_1, ro.address_line_2, ro.locality, ro.postal_code, ro.country].filter(Boolean).join(', ')
+    )}</p>
+    <p><strong>Accounts:</strong> next due ${acc.next_due || acc.next_accounts?.due_on || '—'}, year end ${
+      acc.year_end || (acc.accounting_reference_date?.day && acc.accounting_reference_date?.month
+        ? acc.accounting_reference_date.day + '/' + acc.accounting_reference_date.month : '—')}</p>
+    <p><strong>Confirmation statement:</strong> next due ${cs.next_due || cs.next_made_up_to || '—'}</p>
+    <p><strong>Directors (first 5):</strong> ${directors.join(', ') || '—'}</p>
+    <p><strong>PSC (first 5):</strong> ${pscs.join(', ') || '—'}</p>
+    <details><summary>Raw response</summary>
+      <pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>
+    </details>
+  `;
+}
+
+function escapeHtml(s=''){
+  return s.toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+</script>
+</body>
+</html>

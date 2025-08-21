@@ -1,0 +1,36 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration {
+    public function up(): void
+    {
+        Schema::table('companies', function (Blueprint $table) {
+            if (!Schema::hasColumn('companies', 'status')) {
+                $table->string('status')->nullable()->after('name');
+            }
+            if (!Schema::hasColumn('companies', 'date_of_creation')) {
+                $table->date('date_of_creation')->nullable()->after('status');
+            }
+            if (!Schema::hasColumn('companies', 'address')) {
+                $table->string('address')->nullable()->after('date_of_creation');
+            }
+            if (!Schema::hasColumn('companies', 'data')) {
+                // sqlite will store this as TEXT (that’s fine)
+                $table->json('data')->nullable()->after('address');
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('companies', function (Blueprint $table) {
+            if (Schema::hasColumn('companies', 'data')) $table->dropColumn('data');
+            if (Schema::hasColumn('companies', 'address')) $table->dropColumn('address');
+            if (Schema::hasColumn('companies', 'date_of_creation')) $table->dropColumn('date_of_creation');
+            if (Schema::hasColumn('companies', 'status')) $table->dropColumn('status');
+        });
+    }
+};

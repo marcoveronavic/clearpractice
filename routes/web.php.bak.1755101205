@@ -1,0 +1,18 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\ChController;
+use App\Http\Controllers\ClientController;
+
+Route::get('/', fn() => redirect()->route('ch.page'));
+
+# Companies House page + APIs
+Route::get('/ch',            [ChController::class, 'page'])->name('ch.page');
+Route::get('/ch/search',     [ChController::class, 'search'])->name('ch.search');
+Route::get('/ch/company',    [ChController::class, 'company'])->name('ch.company');
+Route::get('/ch', 		[ChController::class, 'search']);
+
+# Clients (saved selections)
+Route::get('/clients',              [ClientController::class, 'index'])->name('clients.index');
+Route::post('/clients',             [ClientController::class, 'store'])->name('clients.store');
+Route::delete('/clients/{number}',  [ClientController::class, 'destroy'])->name('clients.destroy');
