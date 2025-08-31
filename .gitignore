@@ -1,24 +1,11 @@
-# Laravel defaults
+/vendor
 /node_modules
 /public/build
-/public/hot
-/public/storage
 /storage/*.key
-/storage/app/public
 /storage/framework/*
 /storage/logs/*
-/vendor
-/.phpunit.cache
-.phpunit.result.cache
-Homestead.json
-Homestead.yaml
 .env
-.env.backup
 .env.*.local
-.php-cs-fixer.cache
+database/*.sqlite
 /.idea
 /.vscode
-/.fleet
-
-# Local DB (very important for you)
-database/*.sqlite
