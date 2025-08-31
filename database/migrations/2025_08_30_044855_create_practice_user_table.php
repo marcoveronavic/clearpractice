@@ -9,11 +9,9 @@ return new class extends Migration {
     {
         Schema::create('practice_user', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('practice_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('role')->default('member'); // owner|admin|member
-            $table->timestamp('invited_at')->nullable();
-            $table->timestamp('joined_at')->nullable();
+            $table->foreignId('practice_id')->constrained('practices')->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            $table->string('role', 32)->default('member'); // 'admin' or 'member'
             $table->timestamps();
 
             $table->unique(['practice_id', 'user_id']);

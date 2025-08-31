@@ -12,9 +12,12 @@ class TaskController extends Controller
 {
     public function index()
     {
+        $tasks = Task::latest('id')->paginate(15);
         $users = User::orderBy('name')->get();
-        $tasks = Task::with(['user','company','individual'])->latest()->get();
-        return view('tasks.index', compact('users', 'tasks'));
+        return view('tasks.index', compact('tasks', 'users'));
+
+
+
     }
 
     public function create()
