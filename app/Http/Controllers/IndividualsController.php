@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-
 class IndividualsController extends Controller
 {
     public function index()
@@ -16,10 +14,14 @@ class IndividualsController extends Controller
         ];
 
         if (class_exists(\Inertia\Inertia::class)) {
-            return \Inertia\Inertia::render('Individuals/Index', ['people' => $people]);
+            return \Inertia\Inertia::render('Individuals/Index', [
+                'individuals' => $people,
+            ]);
         }
 
         // Blade fallback (if you’re not on Inertia)
-        return view('individuals.index', ['people' => $people]);
+        return view('individuals.index', [
+            'individuals' => collect($people), // make it a Collection so ->isEmpty() works
+        ]);
     }
 }

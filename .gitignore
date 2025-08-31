@@ -1,31 +1,24 @@
-*.log
-.DS_Store
-.env
-.env.backup
-.env.production
-.phpactor.json
-.phpunit.result.cache
-/.fleet
-/.idea
-/.nova
-/.phpunit.cache
-/.vscode
-/.zed
-/auth.json
+# Laravel defaults
 /node_modules
 /public/build
 /public/hot
 /public/storage
 /storage/*.key
-/storage/pail
+/storage/app/public
+/storage/framework/*
+/storage/logs/*
 /vendor
+/.phpunit.cache
+.phpunit.result.cache
 Homestead.json
 Homestead.yaml
-Thumbs.db
+.env
+.env.backup
+.env.*.local
+.php-cs-fixer.cache
+/.idea
+/.vscode
+/.fleet
 
-# --- Keep app data JSON files, ignore everything else in storage
-/storage/*
-!/storage/app/
-!/storage/app/*.json
-!/storage/app/ch_deadlines/
-!/storage/app/ch_deadlines/*.json
+# Local DB (very important for you)
+database/*.sqlite
