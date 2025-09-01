@@ -4,49 +4,18 @@ namespace App\Models;
 
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable implements MustVerifyEmail
+class User extends Authenticatable
 {
     use HasFactory, Notifiable;
 
-    protected $fillable = [
-        'name',
-        'email',
-        'password',
-    ];
+    // … existing code …
 
-    protected $hidden = [
-        'password',
-        'remember_token',
-    ];
-
-    protected function casts(): array
+    public function companies()
     {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
-    }
-
-    /**
-     * Practices this user owns.
-     */
-    public function practices(): HasMany
-    {
-        return $this->hasMany(Practice::class, 'owner_id');
-    }
-
-    /**
-     * Practices this user is a member of (including the ones they own, if attached in the pivot).
-     */
-    public function memberPractices(): BelongsToMany
-    {
-        return $this->belongsToMany(Practice::class, 'practice_user')
-            ->withTimestamps()
-            ->withPivot('role');
+        // many-to-many: users ↔ companies through company_user
+        return $this->belongsToMany(Company::class)->withTimestamps();
     }
 }

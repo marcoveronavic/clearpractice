@@ -7,28 +7,30 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('deadlines', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('company_id');
-            $table->string('type'); // 'accounts' | 'confirmation_statement'
-            $table->date('period_start_on')->nullable();
-            $table->date('period_end_on')->nullable();
-            $table->date('due_on');
-            $table->date('filed_on')->nullable(); // when that period was actually filed (if historical)
-            $table->string('status')->default('upcoming'); // upcoming | overdue | filed_on_time | filed_late
-            $table->string('source')->default('companies_house');
-            $table->text('notes')->nullable();
+        if (! Schema::hasTable('deadlines')) {
+            Schema::create('deadlines', function (Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('company_id');
+                $table->string('type'); // 'accounts' | 'confirmation_statement'
+                $table->date('period_start_on')->nullable();
+                $table->date('period_end_on')->nullable();
+                $table->date('due_on')->nullable();
+                $table->date('filed_on')->nullable();
+                $table->string('status')->default('upcoming'); // upcoming | overdue | filed_late | filed_on_time
+                $table->text('notes')->nullable();
+                $table->timestamps();
 
-            $table->timestamps();
-
-            $table->foreign('company_id')->references('id')->on('companies')->onDelete('cascade');
-            $table->unique(['company_id', 'type', 'period_end_on', 'due_on'], 'uniq_deadline_period');
-        });
+                $table->foreign('company_id')->references('id')->on('companies')->onDelete('cascade');
+                $table->index(['company_id', 'type']);
+                $table->index('due_on');
+                $table->index('period_end_on');
+            });
+        }
     }
-
     public function down(): void
     {
-        Schema::dropIfExists('deadlines');
+        if (Schema::hasTable('deadlines')) {
+            Schema::drop('deadlines');
+        }
     }
 };
-
