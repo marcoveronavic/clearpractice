@@ -8,14 +8,16 @@
     @if (session('status'))
         <div class="flash ok">{{ session('status') }}</div>
     @endif
+
     @if ($errors->any())
         <div class="flash err">@foreach ($errors->all() as $e) {{ $e }}<br>@endforeach</div>
     @endif
+
     @if (session('invite_url'))
         <div class="flash info">
             Invite link:
             <a href="{{ session('invite_url') }}" target="_blank" rel="noopener">{{ session('invite_url') }}</a>
-            <span class="muted">— copy/share this if email is delayed.</span>
+            <span class="muted"> — copy/share if email is delayed.</span>
         </div>
     @endif
 
@@ -25,7 +27,7 @@
         </p>
 
         {{-- Invite user to this practice --}}
-        <form id="invite-form" method="POST" action="{{ route('users.store') }}"
+        <form id="invite-form" method="POST" action="{{ route('practice.users.store', $practice->slug) }}"
               class="card"
               style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;max-width:1200px">
             @csrf
@@ -46,6 +48,7 @@
             </div>
 
             <div>
+                {{-- Use type="button" + requestSubmit() to avoid nested/outer form issues --}}
                 <button id="invite-submit" class="btn primary" type="button">Send invite</button>
             </div>
         </form>
@@ -56,8 +59,8 @@
                 var form = document.getElementById('invite-form');
                 if (!btn || !form) return;
                 btn.addEventListener('click', function () {
-                    if (typeof form.requestSubmit === 'function') { form.requestSubmit(); }
-                    else { form.submit(); }
+                    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                    else form.submit();
                 });
             })();
         </script>
@@ -91,7 +94,7 @@
                             <td><span class="pill">{{ $isAdmin ? 'admin' : 'member' }}</span></td>
                             <td style="display:flex;gap:8px;align-items:center">
                                 @if ($canRemove)
-                                    <form method="POST" action="{{ route('users.destroy', $m) }}"
+                                    <form method="POST" action="{{ route('practice.users.destroy', [$practice->slug, $m->id]) }}"
                                           onsubmit="return confirm('Remove this user from the practice?');">
                                         @csrf @method('DELETE')
                                         <button class="btn" type="submit">Remove</button>

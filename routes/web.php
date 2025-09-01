@@ -7,7 +7,8 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Schema;   // ⬅️ add this
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 
 use App\Models\User;
 use App\Models\Practice;
@@ -19,6 +20,9 @@ use App\Http\Controllers\PracticeController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\IndividualController;
 use App\Http\Controllers\InviteController;
+use App\Http\Controllers\CompanyCardController;
+use App\Http\Controllers\CHSearchController;   // CH JSON proxy
+use App\Http\Controllers\CompanyImportController; // <- Add company from CH (creates deadlines)
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 
 /*
@@ -81,14 +85,16 @@ Route::post('/login', function (Request $request) {
     $request->session()->regenerate();
 
     $user = $request->user();
-    $hasPractice = Practice::where('owner_id', $user->id)->exists();
+    $practice = Practice::where('owner_id', $user->id)->latest('id')->first()
+        ?: Practice::whereHas('members', fn($q) => $q->where('users.id', $user->id))->latest('id')->first();
 
     if (! $user->hasVerifiedEmail()) {
         return redirect()->route('verification.notice');
     }
 
-    return $hasPractice
-        ? redirect()->route('users.index')->with('status', 'Welcome back!')
+    // Redirect to that user's workspace URL
+    return $practice
+        ? redirect()->route('practice.users.index', $practice->slug)->with('status', 'Welcome back!')
         : redirect()->route('practices.create')->with('status', 'Let’s create your practice.');
 })->name('login.post');
 
@@ -111,10 +117,11 @@ Route::get('/email/verify/{id}/{hash}', function (EmailVerificationRequest $requ
     $request->fulfill();
 
     $user = $request->user();
-    $hasPractice = Practice::where('owner_id', $user->id)->exists();
+    $practice = Practice::where('owner_id', $user->id)->latest('id')->first()
+        ?: Practice::whereHas('members', fn($q) => $q->where('users.id', $user->id))->latest('id')->first();
 
-    return $hasPractice
-        ? redirect()->route('users.index')->with('status', 'Email verified!')
+    return $practice
+        ? redirect()->route('practice.users.index', $practice->slug)->with('status', 'Email verified!')
         : redirect()->route('practices.create')->with('status', 'Email verified — create your practice.');
 })->middleware(['auth', 'signed'])->name('verification.verify');
 
@@ -173,7 +180,7 @@ Route::middleware('auth')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| Practice create/store ONLY (one practice per owner)
+| Practice create/store (one practice per owner)
 |--------------------------------------------------------------------------
 */
 Route::get('/practices/create', [PracticeController::class, 'create'])
@@ -194,153 +201,210 @@ Route::post('/invites/{token}', [InviteController::class, 'accept'])->name('invi
 
 /*
 |--------------------------------------------------------------------------
-| App pages with original global route names (menu targets)
+| Global CH import endpoint (non-workspace path; used by generic JS)
 |--------------------------------------------------------------------------
+|
+| This duplicates the practice-scoped route below so calls to
+| /companies/from-ch also work if the current page isn’t under /p/{slug}.
+|
 */
 Route::middleware(['auth','verified'])->group(function () {
-
-    // CH Search
-    Route::view('/ch', 'ch')->name('ch.page');
-
-    // Users (members of your single practice)
-    Route::get('/users', function () {
-        $uid = Auth::id();
-        $practice = Practice::where('owner_id', $uid)->latest('id')->first()
-            ?: Practice::whereHas('members', fn($q) => $q->where('users.id', $uid))->latest('id')->first();
-
-        if (! $practice) {
-            return redirect()->route('practices.create')->with('status','Create your practice first.');
-        }
-
-        $members = $practice->members()->orderBy('users.name')->get();
-
-        // ✅ Guarded: if the 'invitations' table isn't migrated yet, avoid crash
-        $invites = collect();
-        if (Schema::hasTable('invitations')) {
-            $invites = Invitation::where('practice_id', $practice->id)->latest('id')->get();
-        }
-
-        return view('users.index', compact('practice','members','invites'));
-    })->name('users.index');
-
-    // Invite user (send email with token)
-    Route::post('/users', function (Request $request) {
-        Log::info('Invite POST hit', ['by' => Auth::id(), 'url' => $request->fullUrl()]);
-
-        $uid = Auth::id();
-        $practice = Practice::where('owner_id', $uid)->latest('id')->first()
-            ?: Practice::whereHas('members', fn($q) => $q->where('users.id', $uid))->latest('id')->first();
-
-        if (! $practice) {
-            return redirect()->route('users.index')
-                ->withErrors(['practice' => 'Create your practice first.']);
-        }
-
-        $data = $request->validate([
-            'first_name' => ['required', 'string', 'max:255'],
-            'surname'    => ['required', 'string', 'max:255'],
-            'email'      => ['required', 'email', 'max:255'],
-        ]);
-
-        // If the user already exists, just attach immediately
-        if ($existing = User::where('email', $data['email'])->first()) {
-            $practice->members()->syncWithoutDetaching([$existing->id => ['role' => 'member']]);
-            return redirect()->route('users.index')
-                ->with('status', 'User already exists — added to this practice.')
-                ->with('invite_url', null);
-        }
-
-        try {
-            // Create invitation record
-            $inv = Invitation::create([
-                'practice_id' => $practice->id,
-                'email'       => $data['email'],
-                'first_name'  => $data['first_name'],
-                'surname'     => $data['surname'],
-                'role'        => 'member',
-                'token'       => Str::random(64),
-                'expires_at'  => now()->addDays(7),
-            ]);
-
-            // Send email
-            Mail::to($inv->email)->send(new InviteUser($inv));
-            Log::info('Invite email dispatched', ['to' => $inv->email]);
-
-            return redirect()->route('users.index')
-                ->with('status', 'Invitation sent to '.$inv->email.'.')
-                ->with('invite_url', route('invites.show', $inv->token));
-
-        } catch (\Throwable $e) {
-            Log::error('Invite failure', ['error' => $e->getMessage()]);
-            $fallbackUrl = isset($inv) ? route('invites.show', $inv->token) : null;
-
-            return redirect()->route('users.index')
-                ->withErrors(['invite' => 'Could not send the email: '.$e->getMessage()])
-                ->with('invite_url', $fallbackUrl);
-        }
-    })->name('users.store');
-
-    // Remove a member (protect last admin)
-    Route::delete('/users/{user}', function (User $user) {
-        $uid = Auth::id();
-        $practice = Practice::where('owner_id', $uid)->latest('id')->first()
-            ?: Practice::whereHas('members', fn($q) => $q->where('users.id', $uid))->latest('id')->first();
-
-        if (! $practice) {
-            return back()->withErrors(['No active practice found.']);
-        }
-
-        $adminCount = $practice->members()->wherePivot('role', 'admin')->count();
-        $isAdmin = $practice->members()
-            ->where('users.id', $user->id)
-            ->wherePivot('role', 'admin')
-            ->exists();
-
-        if ($isAdmin && $adminCount <= 1) {
-            return back()->withErrors(['Cannot remove the last admin from this practice.']);
-        }
-
-        $practice->members()->detach($user->id);
-
-        return back()->with('status', "User removed from {$practice->name}.");
-    })->name('users.destroy');
-
-    // Companies / Clients / Tasks / Deadlines
-    Route::view('/companies', 'companies', ['companies' => []])->name('companies.index');
-    Route::post('/companies', fn () => back()->with('status','Companies store not implemented yet.'))->name('companies.store');
-
-    Route::view('/clients', 'clients', ['clients' => []])->name('clients.index');
-    Route::post('/clients', fn () => back()->with('status','Clients store not implemented yet.'))->name('clients.store');
-
-    if (class_exists(TaskController::class)) {
-        Route::get('/tasks', [TaskController::class, 'index'])->name('tasks.index');
-        Route::post('/tasks', [TaskController::class, 'store'])->name('tasks.store');
-        Route::get('/tasks/create', [TaskController::class, 'create'])->name('tasks.create');
-        Route::get('/tasks/{task}', [TaskController::class, 'show'])->name('tasks.show');
-        Route::put('/tasks/{task}', [TaskController::class, 'update'])->name('tasks.update');
-        Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->name('tasks.destroy');
-        Route::get('/tasks/{task}/edit', [TaskController::class, 'edit'])->name('tasks.edit');
-    } else {
-        Route::view('/tasks', 'tasks')->name('tasks.index');
-    }
-
-    Route::view('/deadlines', 'deadlines', [
-        'deadlines' => [], 'auto' => [], 'manual' => [],
-    ])->name('deadlines.index');
-
-    Route::post('/deadlines', fn () => back()->with('status','Deadlines store not implemented yet.'))->name('deadlines.store');
-    Route::delete('/deadlines/{id}', fn (string $id) => back()->with('status',"Deadline {$id} deleted (stub)."))->name('deadlines.destroy');
-    Route::match(['GET','POST'], '/deadlines/refresh-all', fn () => back()->with('status','Deadlines refresh queued (stub).'))->name('deadlines.refreshAll');
+    Route::post('/companies/from-ch', [CompanyImportController::class, 'store'])
+        ->name('companies.import');
 });
 
 /*
 |--------------------------------------------------------------------------
-| Individuals (unchanged stub)
+| Workspace routes (practice-scoped)  →  /p/{slug}/...
+|--------------------------------------------------------------------------
+|
+| Use closures (not Route::view) so we pass the Practice model to views.
+| Route::view would merge route params into view data and can overwrite
+| $practice with the slug string.
+|
+*/
+Route::prefix('/p/{practice:slug}')
+    ->middleware([
+        SubstituteBindings::class,                        // ensure {practice} is bound first
+        'auth',
+        'verified',
+        \App\Http\Middleware\EnsurePracticeAccess::class, // workspace access gate
+    ])
+    ->group(function () {
+
+        // Workspace home
+        Route::get('/', function (Practice $practice) {
+            return redirect()->route('practice.users.index', $practice->slug);
+        })->name('practice.home');
+
+        // CH Search page
+        Route::get('/ch', function (Practice $practice) {
+            return view('ch', ['practice' => $practice]);
+        })->name('practice.ch.page');
+
+        // CH Search JSON proxy (keeps API key server-side)
+        Route::get('/ch/search', [CHSearchController::class, 'search'])
+            ->name('practice.ch.search');
+
+        // Users
+        Route::get('/users', function (Practice $practice) {
+            $members = $practice->members()->orderBy('users.name')->get();
+
+            $invites = collect();
+            if (Schema::hasTable('invitations')) {
+                $invites = Invitation::where('practice_id', $practice->id)->latest('id')->get();
+            }
+
+            return view('users.index', compact('practice','members','invites'));
+        })->name('practice.users.index');
+
+        // Invite user (send email with token)
+        Route::post('/users', function (Request $request, Practice $practice) {
+            Log::info('Invite POST hit', ['by' => Auth::id(), 'practice' => $practice->id]);
+
+            $data = $request->validate([
+                'first_name' => ['required', 'string', 'max:255'],
+                'surname'    => ['required', 'string', 'max:255'],
+                'email'      => ['required', 'email', 'max:255'],
+            ]);
+
+            if ($existing = User::where('email', $data['email'])->first()) {
+                $practice->members()->syncWithoutDetaching([$existing->id => ['role' => 'member']]);
+                return redirect()->route('practice.users.index', $practice->slug)
+                    ->with('status', 'User already exists — added to this practice.');
+            }
+
+            try {
+                $inv = Invitation::create([
+                    'practice_id' => $practice->id,
+                    'email'       => $data['email'],
+                    'first_name'  => $data['first_name'],
+                    'surname'     => $data['surname'],
+                    'role'        => 'member',
+                    'token'       => Str::random(64),
+                    'expires_at'  => now()->addDays(7),
+                ]);
+
+                Mail::to($inv->email)->send(new InviteUser($inv));
+
+                return redirect()->route('practice.users.index', $practice->slug)
+                    ->with('status', 'Invitation sent to '.$inv->email.'.')
+                    ->with('invite_url', route('invites.show', $inv->token));
+
+            } catch (\Throwable $e) {
+                Log::error('Invite failure', ['error' => $e->getMessage()]);
+                $fallbackUrl = isset($inv) ? route('invites.show', $inv->token) : null;
+
+                return redirect()->route('practice.users.index', $practice->slug)
+                    ->withErrors(['invite' => 'Could not send the email: '.$e->getMessage()])
+                    ->with('invite_url', $fallbackUrl);
+            }
+        })->name('practice.users.store');
+
+        // Remove a member (protect last admin)
+        Route::delete('/users/{user}', function (Practice $practice, User $user) {
+            $adminCount = $practice->members()->wherePivot('role', 'admin')->count();
+            $isAdmin = $practice->members()
+                ->where('users.id', $user->id)
+                ->wherePivot('role', 'admin')
+                ->exists();
+
+            if ($isAdmin && $adminCount <= 1) {
+                return back()->withErrors(['Cannot remove the last admin from this practice.']);
+            }
+
+            $practice->members()->detach($user->id);
+
+            return back()->with('status', "User removed from {$practice->name}.");
+        })->name('practice.users.destroy');
+
+        // Companies
+        Route::get('/companies', function (Practice $practice) {
+            return view('companies', [
+                'companies' => [],
+                'practice'  => $practice,
+            ]);
+        })->name('practice.companies.index');
+
+        Route::post('/companies', fn () => back()->with('status','Companies store not implemented yet.'))
+            ->name('practice.companies.store');
+
+        // Add company from Companies House (AJAX from CH modal) — also creates deadlines
+        Route::post('/companies/from-ch', [CompanyImportController::class, 'store'])
+            ->name('practice.companies.import');
+
+        // Company card (HTML for modal)
+        Route::get('/company-card/{companyNumber}', [CompanyCardController::class, 'show'])
+            ->name('practice.company.card');
+
+        // Clients
+        Route::get('/clients', function (Practice $practice) {
+            return view('clients', [
+                'clients'   => [],
+                'practice'  => $practice,
+            ]);
+        })->name('practice.clients.index');
+
+        Route::post('/clients', fn () => back()->with('status','Clients store not implemented yet.'))
+            ->name('practice.clients.store');
+
+        // Tasks
+        if (class_exists(TaskController::class)) {
+            Route::get('/tasks', [TaskController::class, 'index'])->name('practice.tasks.index');
+            Route::post('/tasks', [TaskController::class, 'store'])->name('practice.tasks.store');
+            Route::get('/tasks/create', [TaskController::class, 'create'])->name('practice.tasks.create');
+            Route::get('/tasks/{task}', [TaskController::class, 'show'])->name('practice.tasks.show');
+            Route::put('/tasks/{task}', [TaskController::class, 'update'])->name('practice.tasks.update');
+            Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->name('practice.tasks.destroy');
+            Route::get('/tasks/{task}/edit', [TaskController::class, 'edit'])->name('practice.tasks.edit');
+        } else {
+            Route::get('/tasks', function (Practice $practice) {
+                return view('tasks.index', ['practice' => $practice, 'tasks' => collect()]);
+            })->name('practice.tasks.index');
+        }
+
+        // Deadlines
+        Route::get('/deadlines', function (Practice $practice) {
+            return view('deadlines', [
+                'deadlines' => [],
+                'auto'      => [],
+                'manual'    => [],
+                'practice'  => $practice,
+            ]);
+        })->name('practice.deadlines.index');
+
+        Route::post('/deadlines', fn () => back()->with('status','Deadlines store not implemented yet.'))
+            ->name('practice.deadlines.store');
+
+        Route::delete('/deadlines/{id}', fn (string $id) => back()->with('status',"Deadline {$id} deleted (stub)."))
+            ->name('practice.deadlines.destroy');
+
+        Route::match(['GET','POST'], '/deadlines/refresh-all', fn () => back()->with('status','Deadlines refresh queued (stub).'))
+            ->name('practice.deadlines.refreshAll');
+    });
+
+/*
+|--------------------------------------------------------------------------
+| Fallback redirects from old flat URLs → last/active practice
 |--------------------------------------------------------------------------
 */
-if (class_exists(IndividualController::class)) {
-    Route::get('/individuals', [IndividualController::class, 'index'])->name('individuals.index');
-} else {
-    Route::view('/individuals', 'individuals.index', ['individuals' => collect()])
-        ->name('individuals.index');
-}
+Route::middleware(['auth','verified'])->group(function () {
+    $toActive = function (string $name, array $params = []) {
+        $uid = Auth::id();
+        $practice = Practice::where('owner_id', $uid)->latest('id')->first()
+            ?: Practice::whereHas('members', fn($q) => $q->where('users.id', $uid))->latest('id')->first();
+
+        return $practice
+            ? redirect()->route($name, array_merge(['practice' => $practice->slug], $params))
+            : redirect()->route('practices.create')->with('status','Create your practice first.');
+    };
+
+    Route::get('/users',     fn () => $toActive('practice.users.index'))->name('users.index');
+    Route::get('/companies', fn () => $toActive('practice.companies.index'))->name('companies.index');
+    Route::get('/clients',   fn () => $toActive('practice.clients.index'))->name('clients.index');
+    Route::get('/tasks',     fn () => $toActive('practice.tasks.index'))->name('tasks.index');
+    Route::get('/deadlines', fn () => $toActive('practice.deadlines.index'))->name('deadlines.index');
+
+    // If you need old flat names for specific subroutes, add opt-in aliases here.
+    // (Avoid duplicating 'practice.company.card' outside the workspace.)
+});

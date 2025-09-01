@@ -1,3 +1,4 @@
+{{-- resources/views/tasks/index.blade.php --}}
 @extends('layouts.app')
 
 @section('title', 'Tasks')
@@ -24,7 +25,17 @@
         <p style="color: green">{{ session('status') }}</p>
     @endif
 
-    <p><a href="{{ route('tasks.create') }}">Create Task</a></p>
+    @php
+        // $practice is shared by EnsurePracticeAccess; fall back to route parameter if needed
+        $ws   = $practice ?? request()->route('practice');
+        $slug = $ws instanceof \App\Models\Practice ? $ws->slug : $ws;
+    @endphp
+
+    <p>
+        <a class="btn primary" href="{{ route('practice.tasks.create', ['practice' => $slug]) }}">
+            Create Task
+        </a>
+    </p>
 
     <table>
         <thead>
@@ -52,9 +63,11 @@
                     @endif
                 </td>
                 <td class="actions">
-                    <a href="{{ route('tasks.show', $task) }}">Show</a>
-                    <a href="{{ route('tasks.edit', $task) }}">Edit</a>
-                    <form method="POST" action="{{ route('tasks.destroy', $task) }}" onsubmit="return confirm('Delete this task?')">
+                    <a href="{{ route('practice.tasks.show', ['practice' => $slug, 'task' => $task]) }}">Show</a>
+                    <a href="{{ route('practice.tasks.edit', ['practice' => $slug, 'task' => $task]) }}">Edit</a>
+                    <form method="POST"
+                          action="{{ route('practice.tasks.destroy', ['practice' => $slug, 'task' => $task]) }}"
+                          onsubmit="return confirm('Delete this task?')">
                         @csrf
                         @method('DELETE')
                         <button type="submit">Delete</button>
