@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Hash;
 class InviteController extends Controller
 {
     /**
-     * Show the "Finish setup" form for a valid invitation token.
+     * Show the accept invite page by token.
      */
     public function show(string $token)
     {
@@ -25,12 +25,13 @@ class InviteController extends Controller
             return redirect()->route('login')->withErrors(['This invitation has expired.']);
         }
 
+        // Keep existing view name you already use
         return view('invites.accept', compact('inv'));
     }
 
     /**
-     * Accept the invitation, create/update user, verify email, attach to practice,
-     * log them in, and redirect to Users page.
+     * Accept the invitation: create/update user, verify immediately, attach to practice,
+     * log in, and redirect to that practice's Companies page.
      */
     public function accept(Request $request, string $token)
     {
@@ -41,38 +42,45 @@ class InviteController extends Controller
         }
 
         $data = $request->validate([
-            'first_name'            => ['required', 'string', 'max:255'],
-            'surname'               => ['required', 'string', 'max:255'],
-            'password'              => ['required', 'string', 'min:6', 'confirmed'],
+            'first_name' => ['required', 'string', 'max:255'],
+            'surname'    => ['required', 'string', 'max:255'],
+            'password'   => ['required', 'string', 'min:6', 'confirmed'],
         ]);
 
+        $fullName = trim($data['first_name'].' '.$data['surname']);
+
+        // Create or fetch the user by the invited email (email ownership is proven by the token)
         $user = User::firstOrCreate(
             ['email' => $inv->email],
-            [
-                'name'              => trim($data['first_name'].' '.$data['surname']),
-                'password'          => Hash::make($data['password']),
-                'email_verified_at' => now(), // invitation proves email ownership
-            ],
+            ['name' => $fullName, 'password' => Hash::make($data['password'])]
         );
 
-        if (! $user->wasRecentlyCreated) {
-            $user->name              = trim($data['first_name'].' '.$data['surname']);
-            $user->password          = Hash::make($data['password']);
-            $user->email_verified_at = $user->email_verified_at ?: now();
-            $user->save();
+        // Keep profile current
+        $user->name = $fullName;
+        $user->password = Hash::make($data['password']);
+
+        // ✅ Explicitly mark as verified (don't rely on mass assignment)
+        if (is_null($user->email_verified_at)) {
+            $user->email_verified_at = now();
         }
+        $user->save();
 
-        // Attach to the invited practice
-        $inv->practice->members()->syncWithoutDetaching([$user->id => ['role' => $inv->role ?? 'member']]);
+        // Attach to the practice with the invite's role
+        $inv->practice->members()->syncWithoutDetaching([
+            $user->id => ['role' => $inv->role ?? 'member']
+        ]);
 
-        // Mark invitation as accepted and clean up
+        // Finalize the invitation
         $inv->accepted_at = now();
         $inv->save();
         $inv->delete();
 
-        // Log in the user and go to Users page
+        // Log them in and send to the practice workspace
         Auth::login($user, true);
 
-        return redirect()->route('users.index')->with('status', 'Welcome! Please review your details.');
+        // Practice-scoped Companies page (route must exist in your routes/web.php)
+        return redirect()
+            ->route('practice.companies.index', $inv->practice->slug)
+            ->with('status', 'Welcome! Your account is ready.');
     }
 }

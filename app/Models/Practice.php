@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Str;
 
 class Practice extends Model
 {
@@ -13,12 +14,12 @@ class Practice extends Model
 
     protected $fillable = [
         'name',
-        'slug',
         'owner_id',
+        'slug',
     ];
 
     /**
-     * The owner of the practice (User).
+     * Owner of the practice.
      */
     public function owner(): BelongsTo
     {
@@ -26,8 +27,7 @@ class Practice extends Model
     }
 
     /**
-     * Members (users) who belong to this practice (including the owner).
-     * Pivot has a "role" column ('admin' | 'member'). Ownership is tracked by owner_id.
+     * Members of the practice.
      */
     public function members(): BelongsToMany
     {
@@ -37,18 +37,20 @@ class Practice extends Model
     }
 
     /**
-     * Optional alias so $practice->users behaves like $practice->members.
+     * Auto-generate a unique slug when creating.
      */
-    public function users(): BelongsToMany
+    protected static function booted(): void
     {
-        return $this->members();
-    }
-
-    /**
-     * Use slug in routes (e.g. /practices/my-practice and /{practice:slug}/...).
-     */
-    public function getRouteKeyName(): string
-    {
-        return 'slug';
+        static::creating(function (Practice $practice) {
+            if (! $practice->slug) {
+                $base = Str::slug($practice->name) ?: 'practice';
+                $slug = $base;
+                $i = 1;
+                while (static::where('slug', $slug)->exists()) {
+                    $slug = $base.'-'.$i++;
+                }
+                $practice->slug = $slug;
+            }
+        });
     }
 }

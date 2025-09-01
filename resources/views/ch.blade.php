@@ -1,119 +1,187 @@
-{{-- resources/views/ch.blade.php --}}
 @extends('layouts.app')
 
+@section('title','CH Search')
+
 @section('content')
-    <div class="ch-search">
-        <h1 style="margin-bottom:10px;">Companies House Search</h1>
+    <h1>CH Search</h1>
 
-        <div class="field" style="position:relative;max-width:900px;">
-            <input id="ch-q" type="text" placeholder="Type a company name… e.g. tesco"
-                   autocomplete="off"
-                   style="width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;">
+    {{-- Search bar --}}
+    <form id="ch-search-form" class="cp-search" action="javascript:void(0)">
+        <input id="ch-q" type="text" placeholder="Enter company name or number…" autocomplete="off">
+        <button id="ch-btn" type="submit">Search</button>
+    </form>
 
-            <!-- dropdown -->
-            <div id="ch-results"
-                 style="position:absolute;top:44px;left:0;right:0;z-index:30;background:#fff;border:1px solid #e5e7eb;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.08);display:none;max-height:420px;overflow:auto;">
-            </div>
+    <div id="ch-hint" class="muted" style="margin:8px 0 12px">
+        Type a company name or number and press Enter.
+    </div>
+
+    {{-- Results --}}
+    <div id="ch-results" class="cp-results"></div>
+
+    {{-- Modal --}}
+    <div id="company-card-modal" class="cp-modal-overlay" hidden>
+        <div class="cp-modal">
+            <button class="cp-modal-close" type="button" data-close aria-label="Close">&times;</button>
+            <div id="company-card-body">Loading…</div>
         </div>
-
-        <p style="color:#6b7280;margin-top:10px;">
-            Results come directly from Companies House. Click a row to log the item (you can wire it to any action later).
-        </p>
     </div>
 
     <style>
-        .ch-item{padding:10px 12px;border-top:1px solid #f3f4f6;cursor:pointer}
-        .ch-item:first-child{border-top:0;border-top-left-radius:10px;border-top-right-radius:10px}
-        .ch-item:last-child{border-bottom-left-radius:10px;border-bottom-right-radius:10px}
-        .ch-item:hover{background:#f9fafb}
-        .ch-title{font-weight:600}
-        .ch-sub{color:#6b7280;font-size:13px;margin-top:2px}
-        .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;margin-left:6px;background:#eef2ff;color:#3730a3}
+        .muted { color:#6b7280 }
+        .cp-search { display:flex; gap:8px; margin:10px 0 16px }
+        .cp-search input { flex:1; padding:10px 12px; border:1px solid #d1d5db; border-radius:8px }
+        .cp-search button { padding:10px 14px; border:0; background:#111827; color:#fff; border-radius:8px; cursor:pointer }
+        .cp-results { margin-top:6px }
+        .cp-item { padding:12px 10px; border-bottom:1px solid #eee; }
+        .cp-item a { text-decoration:none; color:#111827; font-weight:600 }
+        .cp-item .sub { margin-top:4px; font-size:13px; color:#6b7280 }
+        .cp-modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,.45);
+            display: flex; align-items: flex-start; justify-content: center;
+            padding: 4rem 1rem; z-index: 9999; opacity: 0; pointer-events: none; transition: opacity .15s ease;
+        }
+        .cp-modal-overlay.show { opacity: 1; pointer-events: auto; }
+        .cp-modal {
+            background:#fff; width:100%; max-width:840px; max-height:80vh;
+            border-radius:10px; box-shadow:0 10px 40px rgba(0,0,0,.25);
+            overflow:auto; padding:18px 22px;
+        }
+        .cp-modal-close { border:0; background:transparent; font-size:28px; line-height:1; float:right; cursor:pointer }
     </style>
 
     <script>
-        (() => {
-            const q  = document.getElementById('ch-q');
-            const box = document.getElementById('ch-results');
+        (function () {
+            const searchUrl = `{{ url('/p/'.$practice->slug.'/ch/search') }}`;
+            const cardUrl   = `{{ url('/p/'.$practice->slug.'/company-card') }}`;
 
-            let aborter = null;
-            let hideTimer = null;
+            const form   = document.getElementById('ch-search-form');
+            const input  = document.getElementById('ch-q');
+            const btn    = document.getElementById('ch-btn');
+            const hint   = document.getElementById('ch-hint');
+            const list   = document.getElementById('ch-results');
 
-            function show() { box.style.display = 'block'; }
-            function hide() { box.style.display = 'none'; box.innerHTML = ''; }
+            const modal  = document.getElementById('company-card-modal');
+            const body   = document.getElementById('company-card-body');
 
-            function debounce(fn, ms){
-                let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(this,args), ms); };
+            function setLoading(on) {
+                btn.disabled = !!on;
+                btn.textContent = on ? 'Searching…' : 'Search';
             }
 
-            function row(item){
-                const el = document.createElement('div');
-                el.className = 'ch-item';
-                el.innerHTML = `
-          <div class="ch-title">
-            ${escapeHtml(item.name || '')}
-            <span class="pill">${escapeHtml(item.number || '')}</span>
-          </div>
-          <div class="ch-sub">
-            ${escapeHtml(item.address || '')}
-            ${item.status ? ' · ' + escapeHtml(item.status) : ''}
-            ${item.date ? ' · created ' + escapeHtml(item.date) : ''}
-          </div>
-        `;
-                el.addEventListener('click', () => {
-                    console.log('Selected company:', item);
-                    // TODO: hook this to your "Add to Companies" flow if you want.
-                    hide();
-                });
-                return el;
+            function escapeHtml(s) {
+                return (''+s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
             }
 
-            function escapeHtml(s){
-                return String(s ?? '').replace(/[&<>"']/g, m => ({
-                    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-                }[m]));
-            }
-
-            const runSearch = debounce(async function(){
-                const term = q.value.trim();
-                if (term.length < 2){ hide(); return; }
-
-                if (aborter) aborter.abort();
-                aborter = new AbortController();
-
-                try{
-                    // ✅ our API route
-                    const r = await fetch(`/api/companies-house/search?q=${encodeURIComponent(term)}`, { signal: aborter.signal });
-                    const j = await r.json();
-                    const items = Array.isArray(j?.data) ? j.data : [];
-
-                    box.innerHTML = '';
-                    if (!items.length){ hide(); return; }
-
-                    items.forEach(it => box.appendChild(row(it)));
-                    show();
-                }catch(err){
-                    if (err.name !== 'AbortError') console.error(err);
-                    hide();
+            function render(items) {
+                if (!items || !items.length) {
+                    list.innerHTML = '<div class="muted">No results.</div>';
+                    return;
                 }
-            }, 250);
+                list.innerHTML = items.map(i => `
+                    <div class="cp-item">
+                        <a href="#" class="company-link" data-company-number="${i.number}">${escapeHtml(i.name || '')}</a>
+                        <div class="sub">
+                            ${escapeHtml(i.number || '')}
+                            ${i.status ? ' — ' + escapeHtml(i.status) : ''}
+                            ${i.date ? ' — ' + escapeHtml(i.date) : ''}
+                            ${i.address ? '<br>'+escapeHtml(i.address) : ''}
+                        </div>
+                    </div>
+                `).join('');
+            }
 
-            q.addEventListener('input', runSearch);
-            q.addEventListener('focus', () => {
-                if (box.children.length) show();
+            async function search(q) {
+                if (!q) return;
+                setLoading(true);
+                if (!list.innerHTML) list.innerHTML = '';
+                try {
+                    const res  = await fetch(`${searchUrl}?q=${encodeURIComponent(q)}`, {
+                        headers: {'X-Requested-With': 'XMLHttpRequest'}
+                    });
+                    const json = await res.json();
+
+                    if (json?.error === 'no-key') {
+                        list.innerHTML = '<div class="muted">Set CH_API_KEY in your .env to enable search.</div>';
+                        return;
+                    }
+                    render(json.items || []);
+                } catch (e) {
+                    console.error(e);
+                    list.innerHTML = '<div class="muted">Error searching. Try again.</div>';
+                } finally {
+                    setLoading(false);
+                }
+            }
+
+            // Submit still works (kept existing behaviour)
+            form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                hint.textContent = '';
+                search(input.value.trim());
             });
 
-            // close dropdown when clicking outside
+            // --- New: debounced "autocomplete" while typing (≥ 2 chars) ---
+            function debounce(fn, wait = 300) {
+                let t;
+                return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
+            }
+            const live = debounce(() => {
+                const q = input.value.trim();
+                if (q.length < 2) {
+                    list.innerHTML = '';
+                    hint.textContent = 'Type a company name or number and press Enter.';
+                    return;
+                }
+                hint.textContent = '';
+                search(q);
+            }, 300);
+            input.addEventListener('input', live);
+
+            // Modal helpers
+            function show(html) {
+                body.innerHTML = html;
+                modal.hidden = false;
+                modal.classList.add('show');
+            }
+            function hide() {
+                modal.classList.remove('show');
+                modal.hidden = true;
+                body.innerHTML = '';
+            }
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal || e.target.closest('[data-close]')) hide();
+            });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hide(); });
+
+            // Open company card
+            async function openCompanyCard(number) {
+                if (!number) return;
+                try {
+                    const res  = await fetch(`${cardUrl}/${encodeURIComponent(number)}`, {
+                        headers: {'X-Requested-With': 'XMLHttpRequest'}
+                    });
+                    const html = await res.text();
+                    show(html);
+                } catch (err) {
+                    console.error(err);
+                    show('<div class="cp-card"><p>Could not load company details.</p></div>');
+                }
+            }
+
+            // Event delegation for clicks on results
             document.addEventListener('click', (e) => {
-                if (e.target === q || box.contains(e.target)) return;
-                hide();
+                const el = e.target.closest('.company-link, [data-company-number], [data-number], [data-company]');
+                if (!el) return;
+                e.preventDefault();
+                let number = el.dataset.companyNumber || el.dataset.number;
+                if (!number && el.dataset.company) {
+                    try { number = JSON.parse(el.dataset.company)?.number; } catch(_) {}
+                }
+                openCompanyCard(number);
             });
 
-            // small UX: delay hide on blur to allow clicking inside the dropdown
-            q.addEventListener('blur', () => {
-                hideTimer = setTimeout(hide, 150);
-            });
-            box.addEventListener('mousedown', () => { clearTimeout(hideTimer); });
+            // Focus input on load
+            input.focus();
         })();
     </script>
 @endsection

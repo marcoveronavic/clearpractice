@@ -1,172 +1,109 @@
+{{-- resources/views/deadlines.blade.php --}}
 @extends('layouts.app')
+
+@section('title', 'Deadlines')
+
+@section('head')
+    <style>
+        table { border-collapse: collapse; width: 100%; }
+        th, td { padding: 8px; border: 1px solid #e5e7eb; text-align: left; }
+        .actions form { display: inline; }
+    </style>
+@endsection
 
 @section('content')
     <h1>Deadlines</h1>
 
-    @if (session('status')) <div class="flash ok">{{ session('status') }}</div> @endif
-    @if (session('error'))  <div class="flash err">{{ session('error') }}</div>  @endif
+    @if (session('status'))
+        <div class="flash ok">{{ session('status') }}</div>
+    @endif
+    @if ($errors->any())
+        <div class="flash err">@foreach ($errors->all() as $e) {{ $e }}<br>@endforeach</div>
+    @endif
 
     @php
-        // Ensure variables always exist (defensive)
-        $deadlines = $deadlines ?? [];
-        $auto      = $auto      ?? [];
-        $manual    = $manual    ?? [];
-        $companies = $companies ?? [];
-
-        $fmt = function($d){
-          if (empty($d)) return '—';
-          try {
-            if (strpos($d, '-') !== false) {
-              return \Illuminate\Support\Carbon::parse($d)->format('d/m/Y');
-            }
-            return $d;
-          } catch (\Throwable $e) { return $d; }
-        };
-
-        $daysLeft = function($d){
-          $neutral = 'background:#e5e7eb;color:#374151';
-          if (empty($d)) return [null, $neutral];
-          try {
-            $due = strpos($d, '-') !== false
-              ? \Illuminate\Support\Carbon::parse($d)->startOfDay()
-              : \Illuminate\Support\Carbon::createFromFormat('d/m/Y', $d)->startOfDay();
-          } catch (\Throwable $e) {
-            return [null, $neutral];
-          }
-          $today = \Illuminate\Support\Carbon::now()->startOfDay();
-          $diff  = $today->diffInDays($due, false);
-          if     ($diff < 0)  $style = 'background:#fee2e2;color:#991b1b';
-          elseif ($diff <=30) $style = 'background:#fb923c;color:#ffffff';
-          elseif ($diff <=90) $style = 'background:#fef08a;color:#854d0e';
-          else                $style = 'background:#bbf7d0;color:#065f46';
-          return [$diff, $style];
-        };
-
-        // Map company number => name (used to label "related" items)
-        $coNames = [];
-        foreach ($companies as $c) {
-          $num = $c['number'] ?? '';
-          if ($num !== '') $coNames[$num] = $c['name'] ?? '';
-        }
+        // $practice is shared by EnsurePracticeAccess; fall back to the route param if needed
+        $ws   = $practice ?? request()->route('practice');
+        $slug = $ws instanceof \App\Models\Practice ? $ws->slug : $ws;
     @endphp
 
-    <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <strong>Company deadlines (auto da Companies House)</strong>
-            <form action="{{ route('deadlines.refreshAll') }}" method="POST">
-                @csrf
-                <button class="btn" type="submit">Aggiorna da CH</button>
-            </form>
-        </div>
-        <div class="muted" style="margin-bottom:8px">
-            Le colonne <strong>Accounts</strong> e <strong>Confirmation statement</strong> arrivano da CH.
-            La colonna <strong>VAT</strong> non è disponibile via CH (serve API HMRC).
-        </div>
-
-        <table>
-            <thead>
-            <tr>
-                <th style="width:120px">Number</th>
-                <th>Name</th>
-                <th style="width:160px">Accounts deadline</th>
-                <th style="width:220px">Confirmation statement<br>deadline</th>
-                <th style="width:140px">VAT deadline</th>
-                <th style="width:120px">Fetched</th>
-                <th style="width:80px">Status</th>
-            </tr>
-            </thead>
-            <tbody>
-            @forelse ($auto as $row)
-                <tr>
-                    <td>{{ $row['number'] }}</td>
-                    <td>{{ $row['name'] }}</td>
-                    <td>{{ $row['accounts_due'] ?? '—' }}</td>
-                    <td>{{ $row['cs_due'] ?? '—' }}</td>
-                    <td>{{ $row['vat_due'] ?? '—' }}</td>
-                    <td class="muted">{{ $row['fetched_at'] ?? '—' }}</td>
-                    <td>
-                        @if (($row['status'] ?? '') === 'OK')
-                            <span class="pill">OK</span>
-                        @elseif (($row['status'] ?? '') === 'ERR')
-                            <span class="pill" style="background:#fee2e2;color:#991b1b">ERR</span>
-                        @else
-                            <span class="pill" style="background:#e5e7eb;color:#374151">—</span>
-                        @endif
-                    </td>
-                </tr>
-            @empty
-                <tr><td colspan="7" class="muted">Nessuna company salvata.</td></tr>
-            @endforelse
-            </tbody>
-        </table>
+    {{-- Toolbar --}}
+    <div style="margin-bottom:12px; display:flex; gap:8px">
+        {{-- Refresh all deadlines --}}
+        <form method="POST" action="{{ route('practice.deadlines.refreshAll', ['practice' => $slug]) }}">
+            @csrf
+            <button class="btn" type="submit">Refresh all deadlines</button>
+        </form>
     </div>
 
-    <div class="card" style="margin-top:16px">
-        <strong>Manual deadlines</strong>
+    {{-- (Stub) Add a manual deadline --}}
+    <form method="POST"
+          action="{{ route('practice.deadlines.store', ['practice' => $slug]) }}"
+          class="card"
+          style="max-width:720px;margin-bottom:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end">
+        @csrf
 
-        <form action="{{ route('deadlines.store') }}" method="POST"
-              style="display:grid;grid-template-columns:1.3fr 180px 1.5fr 1.6fr 160px auto;gap:10px;align-items:center;margin-top:8px">
-            @csrf
-            <input type="text"  name="title"   placeholder="Title (e.g. VAT Return Q3)">
-            <input type="text"  name="due"     placeholder="dd/mm/yyyy">
-            <input type="text"  name="related" placeholder="Related to (client/company)">
-            <input type="text"  name="notes"   placeholder="Notes">
-            <select name="status">
-                <option value="Open" selected>Open</option>
-                <option value="In progress">In progress</option>
-                <option value="Done">Done</option>
-            </select>
-            <button class="btn" type="submit">Add</button>
-        </form>
+        <div>
+            <label class="muted">Title</label>
+            <input type="text" name="title" value="{{ old('title') }}" placeholder="e.g. Confirmation Statement">
+        </div>
 
-        <table style="margin-top:10px">
-            <thead>
-            <tr>
-                <th>Title</th>
-                <th style="width:120px">Due</th>
-                <th style="width:110px">Days</th>
-                <th>Related</th>
-                <th style="width:140px">Status</th>
-                <th style="width:160px">Added</th>
-                <th style="width:120px">Action</th>
-            </tr>
-            </thead>
-            <tbody>
-            @forelse ($manual as $d)
-                @php
-                    $relNum   = (string)($d['related'] ?? '');
-                    $relName  = $coNames[$relNum] ?? null;
-                    $dueRaw   = $d['due'] ?? null;
-                    [$diff, $style] = $daysLeft($dueRaw);
-                @endphp
+        <div>
+            <label class="muted">Due date</label>
+            <input type="date" name="due_date" value="{{ old('due_date') }}">
+        </div>
+
+        <div>
+            <button class="btn primary" type="submit">Add deadline</button>
+        </div>
+    </form>
+
+    {{-- Existing deadlines (stub data supported) --}}
+    <div class="card">
+        @php
+            // Ensure we have arrays to iterate (supports your current stub routes)
+            $deadlines = $deadlines ?? [];
+        @endphp
+
+        @if (!empty($deadlines))
+            <table>
+                <thead>
                 <tr>
-                    <td>
-                        <strong>{{ $relName ? ($relName.' — ') : '' }}{{ $d['title'] }}</strong>
-                        <div class="muted">{{ $d['notes'] ?? '' }}</div>
-                    </td>
-                    <td>{{ $fmt($dueRaw) }}</td>
-                    <td>
-                        @if (is_null($diff))
-                            <span class="pill" style="background:#e5e7eb;color:#374151">—</span>
-                        @else
-                            <span class="pill" style="{{ $style }}">{{ $diff }}</span>
-                        @endif
-                    </td>
-                    <td>{{ $relName ?? ($relNum !== '' ? $relNum : '—') }}</td>
-                    <td>{{ $d['status'] ?? '' }}</td>
-                    <td class="muted">{{ $fmt($d['added'] ?? null) }}</td>
-                    <td>
-                        <form action="{{ route('deadlines.destroy', ['id' => $d['id'] ?? 'x']) }}" method="POST"
-                              onsubmit="return confirm('Delete this deadline?');">
-                            @csrf @method('DELETE')
-                            <button class="btn danger" type="submit">Delete</button>
-                        </form>
-                    </td>
+                    <th>Title</th>
+                    <th>Due</th>
+                    <th class="actions">Actions</th>
                 </tr>
-            @empty
-                <tr><td colspan="7" class="muted">Nessuna deadline manuale.</td></tr>
-            @endforelse
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                @foreach ($deadlines as $d)
+                    @php
+                        // Support both array and object shapes in case of stubbed data
+                        $id    = is_array($d) ? ($d['id'] ?? null) : ($d->id ?? null);
+                        $title = is_array($d) ? ($d['title'] ?? '-') : ($d->title ?? '-');
+                        $due   = is_array($d) ? ($d['due_date'] ?? '-') : ($d->due_date ?? '-');
+                    @endphp
+                    <tr>
+                        <td>{{ $title }}</td>
+                        <td>{{ $due }}</td>
+                        <td class="actions">
+                            @if($id)
+                                <form method="POST"
+                                      action="{{ route('practice.deadlines.destroy', ['practice' => $slug, 'id' => $id]) }}"
+                                      onsubmit="return confirm('Delete this deadline?')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn">Delete</button>
+                                </form>
+                            @else
+                                <span class="muted">—</span>
+                            @endif
+                        </td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
+        @else
+            <p class="muted">No deadlines yet.</p>
+        @endif
     </div>
 @endsection

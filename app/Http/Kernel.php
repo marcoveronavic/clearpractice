@@ -6,6 +6,11 @@ use Illuminate\Foundation\Http\Kernel as HttpKernel;
 
 class Kernel extends HttpKernel
 {
+    /**
+     * Global HTTP middleware stack.
+     *
+     * @var array<int, class-string|string>
+     */
     protected $middleware = [
         // \Illuminate\Http\Middleware\TrustHosts::class,
         \App\Http\Middleware\TrustProxies::class,
@@ -16,6 +21,11 @@ class Kernel extends HttpKernel
         \Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull::class,
     ];
 
+    /**
+     * Route middleware groups.
+     *
+     * @var array<string, array<int, class-string|string>>
+     */
     protected $middlewareGroups = [
         'web' => [
             \App\Http\Middleware\EncryptCookies::class,
@@ -32,6 +42,11 @@ class Kernel extends HttpKernel
         ],
     ];
 
+    /**
+     * Route middleware / aliases.
+     *
+     * @var array<string, class-string|string>
+     */
     protected $middlewareAliases = [
         'auth'             => \App\Http\Middleware\Authenticate::class,
         'auth.basic'       => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
@@ -45,7 +60,10 @@ class Kernel extends HttpKernel
         'throttle'         => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified'         => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
 
-        // ✅ custom tenant membership gate
-        'practice.member'  => \App\Http\Middleware\EnsurePracticeMember::class,
+        // ✅ practice workspace access used by /p/{practice:slug}/... routes
+        'practice.access'  => \App\Http\Middleware\EnsurePracticeAccess::class,
+
+        // (Optional) keep any other custom aliases you already use:
+        // 'practice.member'  => \App\Http\Middleware\EnsurePracticeMember::class,
     ];
 }

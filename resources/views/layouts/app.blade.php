@@ -1,123 +1,96 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
-    <title>@yield('title','ClearPractice')</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>@yield('title') — {{ config('app.name', 'clearpractice') }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
-        :root{
-            --border:#e5e7eb; --muted:#6b7280; --ink:#111827; --bg:#f9fafb;
-            --sidebar-bg:#f8fafc; --sidebar-w:260px; --link:#1f2937; --link-active:#111827;
+        body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; background:#fff; color:#111; }
+        header { height:52px; display:flex; align-items:center; justify-content:space-between; padding:0 16px; border-bottom:1px solid #eee; }
+        .wrap { display:flex; }
+        .sidebar {
+            width:180px; border-right:1px solid #eee; min-height:calc(100dvh - 52px);
+            padding:12px 8px; display:flex; flex-direction:column; gap:6px;
         }
-        *{box-sizing:border-box}
-        html,body{height:100%}
-        body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);background:#fff}
+        .sidebar a { display:block; padding:8px 10px; border-radius:6px; text-decoration:none; color:#111; }
+        .sidebar a.active, .sidebar a:hover { background:#f3f4f6; }
+        main { flex:1; padding:22px; }
+        .card { border:1px solid #e5e7eb; border-radius:8px; padding:12px; background:#fff; }
+        .btn { border:1px solid #d1d5db; border-radius:6px; padding:6px 10px; background:#fff; cursor:pointer; }
+        .btn.primary { background:#111827; color:#fff; border-color:#111827; }
+        .pill { font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid #d1d5db; }
+        .muted { color:#6b7280; }
+        .flash { padding:10px 12px; border-radius:8px; margin:8px 0; }
+        .flash.ok { background:#ecfdf5; border:1px solid #10b98133; }
+        .flash.err { background:#fef2f2; border:1px solid #ef444433; }
+        .flash.info { background:#eff6ff; border:1px solid #3b82f633; }
+        table { width:100%; border-collapse:collapse; }
+        th, td { text-align:left; padding:10px; border-bottom:1px solid #f1f5f9; }
 
-        /* Sidebar (fixed) */
-        .sidebar{
-            position:fixed; inset:auto auto 0 0; top:0; width:var(--sidebar-w);
-            background:var(--sidebar-bg); border-right:1px solid var(--border);
-            padding:14px 10px 0; overflow:auto; z-index:70;
-            display:flex; flex-direction:column; min-height:100vh;
-        }
-        .brand{padding:10px 12px; font-weight:700; letter-spacing:.3px; color:var(--link-active)}
-        .nav{padding-bottom:12px}
-        .nav a{
-            display:flex; align-items:center; gap:10px;
-            padding:10px 12px; margin:4px 8px; border-radius:10px;
-            color:var(--link); text-decoration:none;
-        }
-        .nav a:hover{background:#00000007}
-        .nav a.active{background:#111827; color:#fff}
-
-        /* USER FOOTER */
-        .userfoot{
-            position:sticky; bottom:0; margin-top:auto;
-            border-top:1px solid var(--border); background:#fff;
-        }
-        .userfoot a{
-            display:flex; gap:10px; align-items:center;
-            padding:10px 12px; text-decoration:none; color:inherit;
-        }
-        .userfoot .avatar{
-            width:30px; height:30px; border-radius:50%;
-            display:flex; align-items:center; justify-content:center;
-            border:1px solid var(--border);
-            font-weight:600;
-        }
-        .userfoot .meta{min-width:0}
-        .userfoot .name{font-weight:600; line-height:1.2}
-        .userfoot .email{color:var(--muted); font-size:12px; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-
-        /* Page wrapper */
-        .page{margin-left:var(--sidebar-w); padding:24px}
-        .page h1{margin:0 0 12px}
-
-        /* Utilities */
-        .card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px}
-        .muted{color:var(--muted)}
-        .btn{padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer}
-        .btn.primary{background:#111827;color:#fff;border-color:#111827}
-        .btn.danger{border-color:#ef4444;color:#b91c1c}
-        table{width:100%;border-collapse:collapse}
-        th,td{padding:10px 12px;border-top:1px solid var(--border);text-align:left;vertical-align:top}
-        thead th{background:var(--bg);border-top:0}
-        input,select{padding:8px 10px;border:1px solid var(--border);border-radius:8px;width:100%}
-        .pill{display:inline-block;font-size:12px;border:1px solid var(--border);border-radius:999px;padding:2px 8px;margin:0 6px 6px 0;background:#fff}
-        .flash{padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin:10px 0}
-        .ok{background:#ecfdf5} .err{background:#fef2f2}
+        /* user chip at bottom-left */
+        .user-chip { margin-top:auto; padding:10px 8px; border-top:1px solid #eee; display:flex; gap:8px; align-items:center; }
+        .avatar { width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:600; color:#fff; background:#111827; }
+        .user-info { min-width:0 }
+        .user-name { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .user-email { font-size:12px; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     </style>
-    @yield('head')
 </head>
 <body>
+<header>
+    <div>
+        <strong>{{ config('app.name', 'clearpractice') }}</strong>
+        @isset($practice)
+            <span class="muted" style="margin-left:8px">— {{ $practice->name }}</span>
+        @endisset
+    </div>
 
-<aside id="sidebar" class="sidebar" aria-hidden="false">
-    <div class="brand">clearpractice</div>
+    <form method="POST" action="{{ route('logout') }}">
+        @csrf
+        <button class="btn" type="submit">Logout</button>
+    </form>
+</header>
 
-    <nav class="nav">
-        @php
-            // Use classic global route names; if missing, fall back to '#'
-            $safe = function ($name) {
-                return \Illuminate\Support\Facades\Route::has($name) ? route($name) : '#';
-            };
+<div class="wrap">
+    <aside class="sidebar">
+        @isset($practice)
+            {{-- Practice‑scoped nav --}}
+            <a href="{{ route('practice.ch.page', $practice->slug) }}" class="{{ request()->routeIs('practice.ch.page') ? 'active' : '' }}">CH Search</a>
+            <a href="{{ route('practice.companies.index', $practice->slug) }}" class="{{ request()->routeIs('practice.companies.*') ? 'active' : '' }}">Companies</a>
+            <a href="{{ route('practice.clients.index', $practice->slug) }}" class="{{ request()->routeIs('practice.clients.*') ? 'active' : '' }}">Clients</a>
+            <a href="{{ route('practice.tasks.index', $practice->slug) }}" class="{{ request()->routeIs('practice.tasks.*') ? 'active' : '' }}">Tasks</a>
+            <a href="{{ route('practice.users.index', $practice->slug) }}" class="{{ request()->routeIs('practice.users.*') ? 'active' : '' }}">Users</a>
+            <a href="{{ route('practice.deadlines.index', $practice->slug) }}" class="{{ request()->routeIs('practice.deadlines.*') ? 'active' : '' }}">Deadlines</a>
 
-            $items = [
-              ['label'=>'CH Search', 'href'=>$safe('ch.page'),         'active'=>request()->is('ch')],
-              ['label'=>'Companies', 'href'=>$safe('companies.index'), 'active'=>request()->is('companies*')],
-              ['label'=>'Clients',   'href'=>$safe('clients.index'),   'active'=>request()->is('clients*')],
-              ['label'=>'Tasks',     'href'=>$safe('tasks.index'),     'active'=>request()->is('tasks*')],
-              ['label'=>'Users',     'href'=>$safe('users.index'),     'active'=>request()->is('users*')],
-              ['label'=>'Deadlines', 'href'=>$safe('deadlines.index'), 'active'=>request()->is('deadlines*')],
-            ];
-        @endphp
-        @foreach ($items as $it)
-            <a href="{{ $it['href'] }}" class="{{ $it['active'] ? 'active' : '' }}">{{ $it['label'] }}</a>
-        @endforeach
-    </nav>
-
-    {{-- USER FOOTER --}}
-    @if (auth()->check())
-        @php
-            $u = auth()->user();
-            $initial = strtoupper(mb_substr($u->name ?? 'U', 0, 1));
-        @endphp
-        <div class="userfoot">
-            <a href="{{ route('account') }}" title="Account">
-                <div class="avatar">{{ $initial }}</div>
-                <div class="meta">
-                    <div class="name">{{ $u->name }}</div>
-                    <div class="email">{{ $u->email }}</div>
+            {{-- Signed-in user chip (bottom) --}}
+            @auth
+                @php
+                    $initials = strtoupper(substr(auth()->user()->name ?? auth()->user()->email, 0, 1));
+                @endphp
+                <div class="user-chip" title="{{ auth()->user()->name ?? auth()->user()->email }}">
+                    <div class="avatar">{{ $initials }}</div>
+                    <div class="user-info">
+                        <div class="user-name">{{ auth()->user()->name ?? '—' }}</div>
+                        <div class="user-email">{{ auth()->user()->email }}</div>
+                    </div>
                 </div>
-            </a>
-        </div>
-    @endif
-</aside>
+            @endauth
+        @else
+            {{-- Fallback nav when no practice is in context (e.g. landing/login) --}}
+            <a href="{{ route('landing') }}" class="{{ request()->routeIs('landing') ? 'active' : '' }}">Home</a>
+            @auth
+                <a href="{{ route('users.index') }}">Users</a>
+                <a href="{{ route('companies.index') }}">Companies</a>
+                <a href="{{ route('clients.index') }}">Clients</a>
+                <a href="{{ route('tasks.index') }}">Tasks</a>
+                <a href="{{ route('deadlines.index') }}">Deadlines</a>
+            @endauth
+        @endisset
+    </aside>
 
-<div class="page">
-    @yield('content')
+    <main>
+        @yield('content')
+    </main>
 </div>
-
-@yield('scripts')
 </body>
 </html>
