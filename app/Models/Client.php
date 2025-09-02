@@ -9,6 +9,8 @@ class Client extends Model
 {
     use HasFactory;
 
+    protected $table = 'clients';
+
     protected $fillable = [
         'name',
         'company_number',
@@ -18,6 +20,12 @@ class Client extends Model
     ];
 
     protected $casts = [
-        'raw_json' => 'array', // stored as JSON, returned as array
+        'raw_json' => 'array',
     ];
+
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'client_user')
+            ->withTimestamps();
+    }
 }

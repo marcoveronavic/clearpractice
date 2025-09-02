@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB; // ← ADDED
 use Illuminate\Routing\Middleware\SubstituteBindings;
 
 use App\Models\User;
@@ -253,7 +254,7 @@ Route::prefix('/p/{practice:slug}')
             return view('users.index', compact('practice','members','invites'));
         })->name('practice.users.index');
 
-        // Invite user
+        // Invite user (send email with token)
         Route::post('/users', function (Request $request, Practice $practice) {
             Log::info('Invite POST hit', ['by' => Auth::id(), 'practice' => $practice->id]);
 
@@ -285,6 +286,7 @@ Route::prefix('/p/{practice:slug}')
                 return redirect()->route('practice.users.index', $practice->slug)
                     ->with('status', 'Invitation sent to '.$inv->email.'.')
                     ->with('invite_url', route('invites.show', $inv->token));
+
             } catch (\Throwable $e) {
                 Log::error('Invite failure', ['error' => $e->getMessage()]);
                 $fallbackUrl = isset($inv) ? route('invites.show', $inv->token) : null;
@@ -295,7 +297,7 @@ Route::prefix('/p/{practice:slug}')
             }
         })->name('practice.users.store');
 
-        // Remove a member
+        // Remove a member (protect last admin)
         Route::delete('/users/{user}', function (Practice $practice, User $user) {
             $adminCount = $practice->members()->wherePivot('role', 'admin')->count();
             $isAdmin = $practice->members()
@@ -337,11 +339,33 @@ Route::prefix('/p/{practice:slug}')
         Route::get('/company-card/{companyNumber}', [CompanyCardController::class, 'show'])
             ->name('practice.company.card');
 
-        // Clients
+        // Clients — **now loads real data** (via client_user pivot)
         Route::get('/clients', function (Practice $practice) {
+            $user = Auth::user();
+
+            $clients = collect();
+            if ($user) {
+                $rows = DB::table('clients')
+                    ->join('client_user', 'clients.id', '=', 'client_user.client_id')
+                    ->where('client_user.user_id', $user->id)
+                    ->select('clients.*')
+                    ->orderByRaw("
+                        COALESCE(NULLIF(TRIM(clients.name), ''),
+                                 NULLIF(TRIM(clients.company_name), ''),
+                                 'zzzz') ASC
+                    ")
+                    ->get();
+
+                // add a display field the blade can show
+                $clients = $rows->map(function ($c) {
+                    $c->display = $c->name ?: $c->company_name ?: ('Client #'.$c->id);
+                    return $c;
+                });
+            }
+
             return view('clients', [
-                'clients'   => [],
-                'practice'  => $practice,
+                'clients'  => $clients,   // ← NOT empty anymore
+                'practice' => $practice,
             ]);
         })->name('practice.clients.index');
 
@@ -367,19 +391,18 @@ Route::prefix('/p/{practice:slug}')
             })->name('practice.tasks.index');
         }
 
-        // Deadlines (loads + backfills upcoming deadlines; adds display titles and EU-formatted due)
+        // Deadlines (next only; EU year_end + display_due; split sections; remove filed_late/historical)
         Route::get('/deadlines', function (Practice $practice) {
             $user = Auth::user();
 
             // Company ids linked to this user
             $companyIds = $user?->companies()->select('companies.id')->pluck('id') ?? collect();
+            $companies  = \App\Models\Company::whereIn('id', $companyIds)->get()->keyBy('id');
 
-            // Backfill upcoming deadlines if missing
-            $companies = \App\Models\Company::whereIn('id', $companyIds)->get()->keyBy('id');
-
+            // Ensure the upcoming rows exist (from CH profile fields)
             foreach ($companies as $co) {
-                // Accounts upcoming
-                if ($co->accounts_next_due) {
+                // Accounts (next)
+                if ($co->accounts_next_due && $co->accounts_next_period_end_on) {
                     Deadline::updateOrCreate(
                         [
                             'company_id'    => $co->id,
@@ -394,8 +417,8 @@ Route::prefix('/p/{practice:slug}')
                     );
                 }
 
-                // Confirmation statement upcoming
-                if ($co->confirmation_next_due) {
+                // Confirmation statement (next)
+                if ($co->confirmation_next_due && $co->confirmation_next_made_up_to) {
                     Deadline::updateOrCreate(
                         [
                             'company_id'    => $co->id,
@@ -411,70 +434,78 @@ Route::prefix('/p/{practice:slug}')
                 }
             }
 
-            // Load deadlines
-            $deadlines = Deadline::whereIn('company_id', $companyIds)
-                ->orderByRaw("CASE WHEN status = 'overdue' THEN 0 ELSE 1 END")
+            // Pull only "live" deadlines (exclude historical "filed_late")
+            $rows = Deadline::whereIn('company_id', $companyIds)
+                ->whereIn('type', ['accounts','confirmation_statement'])
+                ->where(function($q){
+                    $q->whereNull('status')->orWhereIn('status', ['upcoming','overdue']);
+                })
+                ->orderBy('type')
                 ->orderBy('due_on')
                 ->get();
 
-            // Pretty type for title
+            // Keep only the *next* one per (company_id, type)
+            $nextPerType = [];
+            foreach ($rows as $d) {
+                $key = $d->company_id.'|'.$d->type;
+                if (!isset($nextPerType[$key])) {
+                    $nextPerType[$key] = $d;
+                } else {
+                    $curr = $nextPerType[$key];
+                    $dDue = $d->due_on ? \Carbon\Carbon::parse($d->due_on) : null;
+                    $cDue = $curr->due_on ? \Carbon\Carbon::parse($curr->due_on) : null;
+                    if ($dDue && $cDue && $dDue->lt($cDue)) {
+                        $nextPerType[$key] = $d;
+                    }
+                }
+            }
+            $rows = collect(array_values($nextPerType));
+
+            // Helpers
             $prettyType = function (string $type): string {
                 return $type === 'accounts'
                     ? 'Accounts'
                     : ($type === 'confirmation_statement' ? 'Confirmation statement'
                         : ucwords(str_replace('_', ' ', $type)));
             };
+            $fmtDue = function (?string $dueStr): string {
+                if (!$dueStr) return '—';
+                $due   = \Carbon\Carbon::parse($dueStr)->startOfDay();
+                $today = now()->startOfDay();
+                $diff  = $today->diffInDays($due, false);
+                $label = $due->format('d/m/Y');
+                if     ($diff > 0)  { $label .= ' (in '.$diff.' days)'; }
+                elseif ($diff === 0){ $label .= ' (today)'; }
+                else                { $label .= ' ('.abs($diff).' days late)'; }
+                return $label;
+            };
 
-            // Ensure each row has: title + EU-formatted due shown via multiple keys
-            $deadlines->transform(function ($d) use ($companies, $prettyType) {
-                // Title
-                if (empty($d->title)) {
-                    $coName = optional($companies->get($d->company_id))->name;
-                    $d->title = $coName ? ($prettyType($d->type) . ' — ' . $coName) : $prettyType($d->type);
+            // Build two sections + a combined list
+            $accounts = [];
+            $confirmations = [];
+            $combined = [];
+
+            foreach ($rows as $d) {
+                $co = $companies->get($d->company_id);
+                $d->title       = ($co?->name) ? ($prettyType($d->type).' — '.$co->name) : $prettyType($d->type);
+                $d->year_end    = $d->period_end_on ? \Carbon\Carbon::parse($d->period_end_on)->format('d/m/Y') : '—';
+                $d->display_due = $fmtDue($d->due_on);
+
+                $combined[] = $d;
+                if ($d->type === 'accounts') {
+                    $accounts[] = $d;
+                } elseif ($d->type === 'confirmation_statement') {
+                    $confirmations[] = $d;
                 }
-
-                // Build EU formatted label + relative text
-                $label = null;
-                if (!empty($d->due_on)) {
-                    try {
-                        $due   = \Carbon\Carbon::parse($d->due_on)->startOfDay();
-                        $today = now()->startOfDay();
-                        $diff  = $today->diffInDays($due, false); // negative if past
-
-                        $label = $due->format('d/m/Y'); // EU format
-
-                        if ($diff > 0) {
-                            $label .= ' (in '.$diff.' days)';
-                        } elseif ($diff === 0) {
-                            $label .= ' (today)';
-                        } else {
-                            $label .= ' ('.abs($diff).' days late)';
-                        }
-                    } catch (\Throwable $e) {
-                        try {
-                            $label = \Carbon\Carbon::parse($d->due_on)->format('d/m/Y');
-                        } catch (\Throwable $e2) {
-                            $label = (string) $d->due_on;
-                        }
-                    }
-                }
-
-                if ($label) {
-                    // Fill several common keys so the Blade picks one (prevents "–")
-                    $d->due               = $label;
-                    $d->due_date          = $label;
-                    $d->display_due       = $label;
-                    $d->due_on_formatted  = $label;
-                }
-
-                return $d;
-            });
+            }
 
             return view('deadlines', [
-                'deadlines' => $deadlines,
-                'auto'      => $deadlines,
-                'manual'    => collect(),
-                'practice'  => $practice,
+                'deadlines'     => collect($combined),
+                'auto'          => collect($combined),
+                'manual'        => collect(),
+                'accounts'      => $accounts,
+                'confirmations' => $confirmations,
+                'practice'      => $practice,
             ]);
         })->name('practice.deadlines.index');
 
@@ -509,6 +540,4 @@ Route::middleware(['auth','verified'])->group(function () {
     Route::get('/clients',   fn () => $toActive('practice.clients.index'))->name('clients.index');
     Route::get('/tasks',     fn () => $toActive('practice.tasks.index'))->name('tasks.index');
     Route::get('/deadlines', fn () => $toActive('practice.deadlines.index'))->name('deadlines.index');
-
-    // If you need old flat names for specific subroutes, add opt-in aliases here.
 });
