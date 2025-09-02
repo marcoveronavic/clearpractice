@@ -1,227 +1,53 @@
 <?php
 
-class CompanyImportController extends Controller
+namespace App\Http\Controllers;
+
+use App\Services\CompaniesHouseClient;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Minimal client import endpoint (separate from company import).
+ */
+class ClientImportController extends Controller
 {
     public function store(Request $request, CompaniesHouseClient $ch)
     {
-        $data = $request->validate([
-            'company_number' => ['required', 'string', 'max:20'],
-        ]);
-
         $user = Auth::user();
-        if (!$user) {
+        if (! $user) {
             throw ValidationException::withMessages(['auth' => 'You must be signed in.']);
         }
 
-        $cn = trim($data['company_number']);
-
-        // Pull profile
-        $profile = $ch->getCompanyProfile($cn);
-
-        // Basic fields
-        $name        = $profile['company_name'] ?? $profile['title'] ?? 'Unknown';
-        $type        = $profile['type'] ?? null; // e.g. 'ltd', 'plc'
-        $status      = $profile['company_status'] ?? null;
-        $incDateStr  = $profile['date_of_creation'] ?? null;
-        $incDate     = $incDateStr ? Carbon::parse($incDateStr) : null;
-
-        $accounts    = $profile['accounts'] ?? [];
-        $nextAcc     = $accounts['next_accounts'] ?? [];
-        $lastAcc     = $accounts['last_accounts'] ?? [];
-        $conf        = $profile['confirmation_statement'] ?? [];
-
-        // Upsert company
-        $company = DB::transaction(function () use ($user, $cn, $name, $status, $type, $incDateStr, $profile, $nextAcc, $conf) {
-            /** @var Company $company */
-            $company = Company::updateOrCreate(
-                ['company_number' => $cn],
-                [
-                    'name'                           => $name,
-                    'status'                         => $status,
-                    'company_type'                   => $type,
-                    'date_of_creation'               => $incDateStr,
-                    'accounts_next_due'              => Arr::get($nextAcc, 'due_on'),
-                    'accounts_next_period_end_on'    => Arr::get($nextAcc, 'period_end_on'),
-                    'accounts_overdue'               => (bool) Arr::get($nextAcc, 'overdue', false),
-                    'confirmation_next_due'          => Arr::get($conf, 'next_due'),
-                    'confirmation_next_made_up_to'   => Arr::get($conf, 'next_made_up_to'),
-                    'confirmation_overdue'           => (bool) Arr::get($conf, 'overdue', false),
-                    'registered_office_address'      => $profile['registered_office_address'] ?? null,
-                    'raw_profile_json'               => json_encode($profile),
-                ]
-            );
-
-            $user->companies()->syncWithoutDetaching([$company->id]);
-
-            return $company;
-        });
-
-        // Upsert future/active deadlines (next accounts + next confirmation statement)
-        $this->upsertUpcomingDeadlines($company);
-
-        // Build historical "late" accounts deadlines from filing history
-        // Limit to accounts category to reduce payload
-        $history = $ch->getFilingHistory($cn, [
-            'category'       => 'accounts',
-            'items_per_page' => 250,
-            'start_index'    => 0,
+        $data = $request->validate([
+            'first_name'     => ['nullable', 'string', 'max:255'],
+            'surname'        => ['nullable', 'string', 'max:255'],
+            'email'          => ['nullable', 'email', 'max:255'],
+            'company_number' => ['nullable', 'string', 'max:20'],
         ]);
 
-        $this->insertLateAccountDeadlinesFromHistory($company, $history, $type, $incDate);
+        // optional: fetch a bit of CH context if company_number provided
+        $companyContext = null;
+        if (!empty($data['company_number'])) {
+            try {
+                $p = $ch->getCompanyProfile($data['company_number']);
+                $companyContext = [
+                    'company_number' => $data['company_number'],
+                    'name' => $p['company_name'] ?? $p['title'] ?? null,
+                    'status' => $p['company_status'] ?? null,
+                    'type' => $p['type'] ?? null,
+                ];
+            } catch (\Throwable $e) {
+                $companyContext = ['company_number' => $data['company_number'], 'error' => 'Could not fetch profile'];
+            }
+        }
 
+        // TODO: persist a Client model later
         return response()->json([
             'ok' => true,
-            'company_id' => $company->id,
-            'message' => "{$company->name} added and deadlines populated.",
+            'message' => 'Client import stub OK.',
+            'received' => $data,
+            'companyContext' => $companyContext,
         ]);
-    }
-
-    private function upsertUpcomingDeadlines(Company $company): void
-    {
-        // Accounts
-        if ($company->accounts_next_due) {
-            Deadline::updateOrCreate(
-                [
-                    'company_id'     => $company->id,
-                    'type'           => 'accounts',
-                    'period_end_on'  => $company->accounts_next_period_end_on,
-                    'due_on'         => $company->accounts_next_due,
-                ],
-                [
-                    'status' => $company->accounts_overdue ? 'overdue' : 'upcoming',
-                    'notes'  => 'Next accounts deadline from CH profile',
-                ]
-            );
-        }
-
-        // Confirmation statement
-        if ($company->confirmation_next_due) {
-            Deadline::updateOrCreate(
-                [
-                    'company_id'     => $company->id,
-                    'type'           => 'confirmation_statement',
-                    'period_end_on'  => $company->confirmation_next_made_up_to,
-                    'due_on'         => $company->confirmation_next_due,
-                ],
-                [
-                    'status' => $company->confirmation_overdue ? 'overdue' : 'upcoming',
-                    'notes'  => 'Next confirmation statement deadline from CH profile',
-                ]
-            );
-        }
-    }
-
-    /**
-     * Extract historical "late" accounts periods from filing history and create a deadline row
-     * for each period that was filed after its lawful due date.
-     *
-     * @param array<string,mixed> $history
-     */
-    private function insertLateAccountDeadlinesFromHistory(Company $company, array $history, ?string $companyType, ?Carbon $incDate): void
-    {
-        $items = $history['items'] ?? [];
-
-        // Build a normalized list: [period_end_on, filed_on, maybe period_start_on]
-        $periods = [];
-        foreach ($items as $item) {
-            // only process filings that include a "made_up_date" (period end)
-            $descVals = $item['description_values'] ?? [];
-            $madeUp   = $descVals['made_up_date'] ?? null;
-            $periodEnd = $this->parseDateFlexible($madeUp);
-            $filedOn   = $this->parseDateFlexible($item['date'] ?? null);
-            $periodStart = $this->parseDateFlexible($descVals['period_start_on'] ?? null);
-
-            if ($periodEnd && $filedOn) {
-                $periods[] = [
-                    'period_end_on'   => $periodEnd,
-                    'period_start_on' => $periodStart,
-                    'filed_on'        => $filedOn,
-                ];
-            }
-        }
-
-        if (empty($periods)) {
-            return;
-        }
-
-        // Sort ascending by period_end_on
-        usort($periods, fn ($a, $b) => $a['period_end_on']->lt($b['period_end_on']) ? -1 : 1);
-
-        $isPlc = strtolower((string) $companyType) === 'plc';
-
-        // Calculate ARD from incorporation date (last day of the month of first anniversary)
-        $ard = $incDate ? $incDate->copy()->addYear()->endOfMonth() : null;
-
-        foreach ($periods as $idx => $p) {
-            $isFirst = $idx === 0;
-
-            $dueOn = $this->computeAccountsDueDate(
-                periodEnd: $p['period_end_on'],
-                isPlc: $isPlc,
-                isFirstAccounts: $isFirst,
-                incorporationDate: $incDate,
-                firstArd: $ard
-            );
-
-            // If they filed after due date, create a 'filed_late' deadline row for that year
-            if ($p['filed_on']->gt($dueOn)) {
-                Deadline::updateOrCreate(
-                    [
-                        'company_id'    => $company->id,
-                        'type'          => 'accounts',
-                        'period_end_on' => $p['period_end_on']->toDateString(),
-                        'due_on'        => $dueOn->toDateString(),
-                    ],
-                    [
-                        'period_start_on' => $p['period_start_on']?->toDateString(),
-                        'filed_on'        => $p['filed_on']->toDateString(),
-                        'status'          => 'filed_late',
-                        'notes'           => 'Late filing identified from CH filing history',
-                    ]
-                );
-            }
-        }
-    }
-
-    private function parseDateFlexible(?string $val): ?Carbon
-    {
-        if (!$val) return null;
-
-        // Companies House usually uses ISO (YYYY-MM-DD), but be lenient.
-        // Try ISO first, then common UK dd/mm/yyyy.
-        try { return Carbon::parse($val); } catch (\Throwable $e) {}
-
-        if (preg_match('~^\d{2}/\d{2}/\d{4}$~', $val)) {
-            [$d,$m,$y] = explode('/', $val);
-            return Carbon::createFromFormat('d/m/Y', "$d/$m/$y");
-        }
-        if (preg_match('~^\d{2}/\d{2}/\d{2}$~', $val)) {
-            [$d,$m,$y] = explode('/', $val);
-            $y = (int)$y + 2000;
-            return Carbon::createFromFormat('d/m/Y', "$d/$m/$y");
-        }
-        return null;
-    }
-
-    /**
-     * Compute legal due date for accounts for a given period end.
-     * - Private co/LLP: 9 months after period end; PLC: 6 months.
-     * - For FIRST accounts: later of (21m after incorporation for private / 18m for PLC) OR (3m after first ARD).
-     */
-    private function computeAccountsDueDate(
-        Carbon $periodEnd,
-        bool $isPlc,
-        bool $isFirstAccounts,
-        ?Carbon $incorporationDate,
-        ?Carbon $firstArd
-    ): Carbon {
-        if ($isFirstAccounts && $incorporationDate) {
-            $ruleA = $incorporationDate->copy()->addMonths($isPlc ? 18 : 21); // first accounts long-stop
-            $ruleB = $firstArd ? $firstArd->copy()->addMonths(3) : $ruleA;
-            return $ruleA->gt($ruleB) ? $ruleA : $ruleB;
-        }
-
-        // Normal years
-        return $periodEnd->copy()->addMonths($isPlc ? 6 : 9);
     }
 }

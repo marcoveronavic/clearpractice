@@ -49,7 +49,7 @@ class CompanyImportController extends Controller
         $lookupKey  = $hasCompanyNumber ? 'company_number' : ($hasLegacyNumber ? 'number' : 'company_number');
         $lookupPair = [$lookupKey => $cn];
 
-        // Build the values to upsert, writing to BOTH columns if they exist
+        // Values to upsert (write to BOTH columns if they exist)
         $values = [
             'name'                         => $name,
             'status'                       => $status,
@@ -65,7 +65,7 @@ class CompanyImportController extends Controller
             'confirmation_overdue'         => (bool) Arr::get($conf, 'overdue', false),
 
             'registered_office_address'    => $profile['registered_office_address'] ?? null,
-            'raw_profile_json'             => json_encode($profile),
+            'raw_profile_json'             => json_encode($profile, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ];
 
         if ($hasCompanyNumber) {
