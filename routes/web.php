@@ -8,13 +8,13 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\DB; // ← ADDED
+use Illuminate\Support\Facades\DB;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 
 use App\Models\User;
 use App\Models\Practice;
 use App\Models\Invitation;
-use App\Models\Deadline; // used by deadlines page
+use App\Models\Deadline;
 
 use App\Mail\InviteUser;
 
@@ -23,9 +23,9 @@ use App\Http\Controllers\TaskController;
 use App\Http\Controllers\IndividualController;
 use App\Http\Controllers\InviteController;
 use App\Http\Controllers\CompanyCardController;
-use App\Http\Controllers\CHSearchController;   // CH JSON proxy
-use App\Http\Controllers\CompanyImportController; // Add company from CH (creates deadlines)
-use App\Http\Controllers\ClientImportController;   // Add director to clients
+use App\Http\Controllers\CHSearchController;
+use App\Http\Controllers\CompanyImportController;
+use App\Http\Controllers\ClientImportController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 
 /*
@@ -254,7 +254,7 @@ Route::prefix('/p/{practice:slug}')
             return view('users.index', compact('practice','members','invites'));
         })->name('practice.users.index');
 
-        // Invite user (send email with token)
+        // Invite user
         Route::post('/users', function (Request $request, Practice $practice) {
             Log::info('Invite POST hit', ['by' => Auth::id(), 'practice' => $practice->id]);
 
@@ -314,7 +314,7 @@ Route::prefix('/p/{practice:slug}')
             return back()->with('status', "User removed from {$practice->name}.");
         })->name('practice.users.destroy');
 
-        // Companies (loads from DB)
+        // Companies (index)
         Route::get('/companies', function (Practice $practice) {
             $user = Auth::user();
 
@@ -331,15 +331,141 @@ Route::prefix('/p/{practice:slug}')
         Route::post('/companies', fn () => back()->with('status','Companies store not implemented yet.'))
             ->name('practice.companies.store');
 
-        // Add company from CH (AJAX)
-        Route::post('/companies/from-ch', [CompanyImportController::class, 'store'])
-            ->name('practice.companies.import');
-
         // Company card (HTML for modal)
         Route::get('/company-card/{companyNumber}', [CompanyCardController::class, 'show'])
             ->name('practice.company.card');
 
-        // Clients — **now loads real data** (via client_user pivot)
+        /*
+        |--------------------------------------------------------------------------
+        | Company details page → /p/{practice}/companies/{companyParam}
+        | Resolves by id | company_number | exact name (case-insensitive) | slug (if column exists)
+        |--------------------------------------------------------------------------
+        */
+        Route::get('/companies/{companyParam}', function (Practice $practice, string $companyParam) {
+            $user = Auth::user();
+
+            $company = \App\Models\Company::where(function ($q) use ($companyParam) {
+                $slugGuess = Str::slug($companyParam);
+
+                $q->when(is_numeric($companyParam), fn ($qq) => $qq->orWhere('id', $companyParam))
+                    ->orWhere('company_number', $companyParam)
+                    ->orWhereRaw('LOWER(name) = ?', [strtolower(str_replace('-', ' ', $companyParam))]);
+
+                if (Schema::hasColumn('companies', 'slug')) {
+                    $q->orWhere('slug', $slugGuess);
+                }
+            })->firstOrFail();
+
+            // Ensure the authed user can access this company
+            if (! $user->companies()->where('companies.id', $company->id)->exists()) {
+                abort(403, 'You do not have access to this company.');
+            }
+
+            // CH profile JSON (if present)
+            $profile = [];
+            if (!empty($company->raw_profile_json)) {
+                $profile = is_array($company->raw_profile_json)
+                    ? $company->raw_profile_json
+                    : (json_decode($company->raw_profile_json, true) ?: []);
+            }
+
+            // Normalised fields for the Blade
+            $company->number = $company->company_number ?? ($profile['company_number'] ?? null);
+
+            $createdRaw       = $company->date_of_creation ?? ($profile['date_of_creation'] ?? null);
+            $company->created = $createdRaw ? \Carbon\Carbon::parse($createdRaw)->format('d/m/Y') : null;
+
+            $addr = $company->registered_office_address ?? ($profile['registered_office_address'] ?? null);
+            if (is_string($addr)) { $addr = json_decode($addr, true) ?: []; }
+            $addr = is_array($addr) ? $addr : [];
+            $company->address = implode(', ', array_filter([
+                $addr['address_line_1'] ?? $addr['address_line1'] ?? null,
+                $addr['address_line_2'] ?? $addr['address_line2'] ?? null,
+                $addr['locality']       ?? $addr['town']         ?? null,
+                $addr['region']         ?? null,
+                $addr['postal_code']    ?? $addr['postcode']     ?? null,
+                $addr['country']        ?? null,
+            ]));
+
+            $company->sic_codes = $profile['sic_codes'] ?? [];
+
+            $accNextDue = $company->accounts_next_due
+                ?? ($profile['accounts']['next_accounts']['due_on'] ?? null);
+            $accNextEnd = $company->accounts_next_period_end_on
+                ?? ($profile['accounts']['next_accounts']['period_end_on'] ?? null);
+            $accOverdue = (bool) ($company->accounts_overdue
+                ?? ($profile['accounts']['next_accounts']['overdue'] ?? false));
+
+            $accounts = [
+                'next_due'        => $accNextDue ? \Carbon\Carbon::parse($accNextDue)->format('d/m/Y') : null,
+                'next_made_up_to' => $accNextEnd ? \Carbon\Carbon::parse($accNextEnd)->format('d/m/Y') : null,
+                'overdue'         => $accOverdue,
+                'last_accounts'   => $profile['accounts']['last_accounts'] ?? null,
+            ];
+
+            $csNextDue  = $company->confirmation_next_due
+                ?? ($profile['confirmation_statement']['next_due'] ?? null);
+            $csNextUpTo = $company->confirmation_next_made_up_to
+                ?? ($profile['confirmation_statement']['next_made_up_to'] ?? null);
+            $csOverdue  = (bool) ($company->confirmation_overdue
+                ?? ($profile['confirmation_statement']['overdue'] ?? false));
+
+            $confirmation = [
+                'next_due'        => $csNextDue  ? \Carbon\Carbon::parse($csNextDue)->format('d/m/Y') : null,
+                'next_made_up_to' => $csNextUpTo ? \Carbon\Carbon::parse($csNextUpTo)->format('d/m/Y') : null,
+                'overdue'         => $csOverdue,
+            ];
+
+            // Not persisted yet (placeholders; your Blade handles empty arrays)
+            $officersActive   = [];
+            $officersResigned = [];
+            $pscsCurrent      = [];
+            $pscsFormer       = [];
+
+            /*
+            |--------------------------------------------------------------------------
+            | NEXT-ONLY deadlines for this company (to match /deadlines page)
+            | Also fetch a small "late filing history" list (optional in the view)
+            |--------------------------------------------------------------------------
+            */
+            $rows = Deadline::where('company_id', $company->id)
+                ->whereIn('type', ['accounts','confirmation_statement'])
+                ->where(function ($q) {
+                    $q->whereNull('status')->orWhereIn('status', ['upcoming','overdue']);
+                })
+                ->orderBy('type')
+                ->orderBy('due_on')
+                ->get();
+
+            $nextByType = [];
+            foreach ($rows as $row) {
+                if (! isset($nextByType[$row->type])) { // first (earliest) per type
+                    $nextByType[$row->type] = $row;
+                }
+            }
+            $nextDeadlines = array_values($nextByType);
+
+            $lateHistory = Deadline::where('company_id', $company->id)
+                ->whereIn('type', ['accounts','confirmation_statement'])
+                ->where('status', 'filed_late')
+                ->orderBy('period_end_on', 'desc')
+                ->get();
+
+            return view('companies.show', [
+                'practice'         => $practice,
+                'company'          => $company,
+                'accounts'         => $accounts,
+                'confirmation'     => $confirmation,
+                'officersActive'   => $officersActive,
+                'officersResigned' => $officersResigned,
+                'pscsCurrent'      => $pscsCurrent,
+                'pscsFormer'       => $pscsFormer,
+                'nextDeadlines'    => $nextDeadlines,   // ← used by the Deadlines tab
+                'lateHistory'      => $lateHistory,     // ← optional history table
+            ]);
+        })->name('practice.companies.show');
+
+        // Clients — loads real data (via client_user pivot)
         Route::get('/clients', function (Practice $practice) {
             $user = Auth::user();
 
@@ -356,7 +482,6 @@ Route::prefix('/p/{practice:slug}')
                     ")
                     ->get();
 
-                // add a display field the blade can show
                 $clients = $rows->map(function ($c) {
                     $c->display = $c->name ?: $c->company_name ?: ('Client #'.$c->id);
                     return $c;
@@ -364,7 +489,7 @@ Route::prefix('/p/{practice:slug}')
             }
 
             return view('clients', [
-                'clients'  => $clients,   // ← NOT empty anymore
+                'clients'  => $clients,
                 'practice' => $practice,
             ]);
         })->name('practice.clients.index');
@@ -391,17 +516,15 @@ Route::prefix('/p/{practice:slug}')
             })->name('practice.tasks.index');
         }
 
-        // Deadlines (next only; EU year_end + display_due; split sections; remove filed_late/historical)
+        // Deadlines
         Route::get('/deadlines', function (Practice $practice) {
             $user = Auth::user();
 
-            // Company ids linked to this user
             $companyIds = $user?->companies()->select('companies.id')->pluck('id') ?? collect();
             $companies  = \App\Models\Company::whereIn('id', $companyIds)->get()->keyBy('id');
 
-            // Ensure the upcoming rows exist (from CH profile fields)
+            // ensure the "next" deadlines exist, based on CH profile fields
             foreach ($companies as $co) {
-                // Accounts (next)
                 if ($co->accounts_next_due && $co->accounts_next_period_end_on) {
                     Deadline::updateOrCreate(
                         [
@@ -417,7 +540,6 @@ Route::prefix('/p/{practice:slug}')
                     );
                 }
 
-                // Confirmation statement (next)
                 if ($co->confirmation_next_due && $co->confirmation_next_made_up_to) {
                     Deadline::updateOrCreate(
                         [
@@ -434,7 +556,6 @@ Route::prefix('/p/{practice:slug}')
                 }
             }
 
-            // Pull only "live" deadlines (exclude historical "filed_late")
             $rows = Deadline::whereIn('company_id', $companyIds)
                 ->whereIn('type', ['accounts','confirmation_statement'])
                 ->where(function($q){
@@ -444,7 +565,7 @@ Route::prefix('/p/{practice:slug}')
                 ->orderBy('due_on')
                 ->get();
 
-            // Keep only the *next* one per (company_id, type)
+            // keep only earliest per (company, type)
             $nextPerType = [];
             foreach ($rows as $d) {
                 $key = $d->company_id.'|'.$d->type;
@@ -461,7 +582,6 @@ Route::prefix('/p/{practice:slug}')
             }
             $rows = collect(array_values($nextPerType));
 
-            // Helpers
             $prettyType = function (string $type): string {
                 return $type === 'accounts'
                     ? 'Accounts'
@@ -480,7 +600,6 @@ Route::prefix('/p/{practice:slug}')
                 return $label;
             };
 
-            // Build two sections + a combined list
             $accounts = [];
             $confirmations = [];
             $combined = [];

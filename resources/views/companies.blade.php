@@ -29,35 +29,43 @@
             cursor: pointer;
         }
 
-        /* basic list styling (adjust to your taste) */
+        /* list styling */
         ul.company-list { list-style: none; padding: 0; margin: 0; }
         ul.company-list li { padding: 8px 0; border-bottom: 1px solid #eee; }
-        a.company-link { text-decoration: none; }
-        a.company-link:hover { text-decoration: underline; }
+        a.company-name-link { text-decoration: none; font-weight: 600; }
+        a.company-name-link:hover { text-decoration: underline; }
+        small.muted { color: #6b7280; }
     </style>
 @endsection
 
 @section('content')
     <h1>Companies</h1>
 
-    {{-- Example list.
-         Replace with your real $companies data (array of arrays with keys:
-         number, name, address, etc.). For now the page is fed from routes/web.php
-         with an empty list, so nothing will render until you plug in data.
-    --}}
-    @if(empty($companies))
+    @if(empty($companies) || !count($companies))
         <p>No companies yet.</p>
     @else
         <ul class="company-list">
-            @foreach($companies as $c)
+            @foreach($companies as $co)
+                @php
+                    $num = $co->company_number ?? $co->number ?? '';
+                    $name = $co->name ?? 'Company';
+                @endphp
                 <li>
-                    <a href="#"
-                       class="company-link"
-                       data-number="{{ $c['number'] ?? '' }}">
-                        {{ $c['name'] ?? 'Company' }}
+                    {{-- MAIN LINK → full page --}}
+                    <a href="{{ route('practice.companies.show', ['practice' => $practice->slug, 'companyParam' => rawurlencode($name)]) }}"
+                       class="company-name-link">
+                        {{ $name }}
                     </a>
-                    @if(!empty($c['number']))
-                        <span class="muted">— {{ $c['number'] }}</span>
+
+                    {{-- Small "card" link that still opens the modal (optional) --}}
+                    @if($num)
+                        <small class="muted">
+                            — {{ $num }}
+                            &nbsp; <a href="#"
+                                      class="js-company-card"
+                                      data-number="{{ $num }}"
+                                      title="Open quick card">[card]</a>
+                        </small>
                     @endif
                 </li>
             @endforeach
@@ -99,9 +107,9 @@
             btnClose.addEventListener('click', closeModal);
             modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
-            // Intercept clicks on company links
+            // Intercept clicks ONLY on the small [card] links
             document.addEventListener('click', async (ev) => {
-                const a = ev.target.closest('a.company-link');
+                const a = ev.target.closest('a.js-company-card');
                 if (!a) return;
 
                 ev.preventDefault();
