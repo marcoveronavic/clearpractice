@@ -7,20 +7,22 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::create('company_user', function (Blueprint $table) {
-            $table->unsignedBigInteger('company_id');
-            $table->unsignedBigInteger('user_id');
-            $table->timestamps();
+        if (! Schema::hasTable('company_user')) {
+            Schema::create('company_user', function (Blueprint $table) {
+                $table->unsignedBigInteger('company_id');
+                $table->unsignedBigInteger('user_id');
+                $table->timestamps();
 
-            $table->primary(['company_id', 'user_id']);
-            $table->foreign('company_id')->references('id')->on('companies')->onDelete('cascade');
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
-        });
+                $table->primary(['company_id', 'user_id']);
+                $table->foreign('company_id')->references('id')->on('companies')->onDelete('cascade');
+                $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+            });
+        }
     }
-
     public function down(): void
     {
-        Schema::dropIfExists('company_user');
+        if (Schema::hasTable('company_user')) {
+            Schema::drop('company_user');
+        }
     }
 };
-

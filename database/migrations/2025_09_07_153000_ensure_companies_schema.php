@@ -4,16 +4,14 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     public function up(): void
     {
-        // If the table does not exist, create it with the full current schema.
+        // Create the table if it doesn't exist
         if (! Schema::hasTable('companies')) {
             Schema::create('companies', function (Blueprint $table) {
                 $table->id();
-
-                $table->string('company_number')->index();
+                $table->string('company_number')->index();      // use index (unique is tricky to add later on SQLite)
                 $table->string('name');
                 $table->string('status')->nullable();
                 $table->string('company_type')->nullable();
@@ -28,20 +26,19 @@ return new class extends Migration
                 $table->boolean('confirmation_overdue')->default(false);
 
                 $table->text('registered_office_address')->nullable();
-                $table->json('raw_profile_json')->nullable(); // TEXT on SQLite
+                $table->json('raw_profile_json')->nullable();    // TEXT on SQLite
 
                 $table->timestamps();
 
                 $table->index('accounts_next_due');
                 $table->index('confirmation_next_due');
             });
-
             return;
         }
 
-        // Otherwise: patch in any missing columns (SQLite-safe; no "after()" calls)
+        // Otherwise: patch in any missing columns (SQLite-safe)
         Schema::table('companies', function (Blueprint $table) {
-            if (! Schema::hasColumn('companies', 'company_number'))             $table->string('company_number')->nullable()->index();
+            if (! Schema::hasColumn('companies', 'company_number'))             $table->string('company_number')->nullable()->index()->after('id');
             if (! Schema::hasColumn('companies', 'name'))                       $table->string('name')->nullable();
             if (! Schema::hasColumn('companies', 'status'))                     $table->string('status')->nullable();
             if (! Schema::hasColumn('companies', 'company_type'))               $table->string('company_type')->nullable();
@@ -58,19 +55,12 @@ return new class extends Migration
             if (! Schema::hasColumn('companies', 'registered_office_address'))  $table->text('registered_office_address')->nullable();
             if (! Schema::hasColumn('companies', 'raw_profile_json'))           $table->json('raw_profile_json')->nullable();
 
-            // add timestamps only if missing (adds both created_at & updated_at)
-            if (! Schema::hasColumn('companies', 'created_at'))                 $table->timestamps();
-
-            // indexes (SQLite ignores duplicates silently)
-            // NOTE: if you need them and table already has data, ensure index creation is safe in your env.
+            if (! Schema::hasColumn('companies', 'created_at'))                 $table->timestamps(); // adds created_at & updated_at
         });
     }
 
     public function down(): void
     {
-        // Keep it simple for dev: drop only if it exists
-        if (Schema::hasTable('companies')) {
-            Schema::drop('companies');
-        }
+        // Do not drop the table to preserve data; no-op on rollback.
     }
 };

@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Company;
 use App\Models\Deadline;
-use App\Services\CompaniesHouseClient;
+use App\Services\CompaniesHouseClient; // adjust this if your service lives elsewhere
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -43,7 +43,7 @@ class CompanyImportController extends Controller
         $conf        = $profile['confirmation_statement'] ?? [];
 
         // Upsert company
-        $company = DB::transaction(function () use ($user, $cn, $name, $status, $type, $incDateStr, $profile, $nextAcc, $conf, $profile) {
+        $company = DB::transaction(function () use ($user, $cn, $name, $status, $type, $incDateStr, $profile, $nextAcc, $conf) {
             /** @var Company $company */
             $company = Company::updateOrCreate(
                 ['company_number' => $cn],
@@ -71,8 +71,7 @@ class CompanyImportController extends Controller
         // Upsert future/active deadlines (next accounts + next confirmation statement)
         $this->upsertUpcomingDeadlines($company);
 
-        // Build historical "late" accounts deadlines from filing history
-        // Limit to accounts category to reduce payload
+        // Build historical "late" accounts deadlines from filing history (accounts-only to reduce payload)
         $history = $ch->getFilingHistory($cn, [
             'category'       => 'accounts',
             'items_per_page' => 250,
@@ -82,9 +81,9 @@ class CompanyImportController extends Controller
         $this->insertLateAccountDeadlinesFromHistory($company, $history, $type, $incDate);
 
         return response()->json([
-            'ok' => true,
+            'ok'         => true,
             'company_id' => $company->id,
-            'message' => "{$company->name} added and deadlines populated.",
+            'message'    => "{$company->name} added and deadlines populated.",
         ]);
     }
 
@@ -94,10 +93,10 @@ class CompanyImportController extends Controller
         if ($company->accounts_next_due) {
             Deadline::updateOrCreate(
                 [
-                    'company_id'     => $company->id,
-                    'type'           => 'accounts',
-                    'period_end_on'  => $company->accounts_next_period_end_on,
-                    'due_on'         => $company->accounts_next_due,
+                    'company_id'    => $company->id,
+                    'type'          => 'accounts',
+                    'period_end_on' => $company->accounts_next_period_end_on,
+                    'due_on'        => $company->accounts_next_due,
                 ],
                 [
                     'status' => $company->accounts_overdue ? 'overdue' : 'upcoming',
@@ -110,10 +109,10 @@ class CompanyImportController extends Controller
         if ($company->confirmation_next_due) {
             Deadline::updateOrCreate(
                 [
-                    'company_id'     => $company->id,
-                    'type'           => 'confirmation_statement',
-                    'period_end_on'  => $company->confirmation_next_made_up_to,
-                    'due_on'         => $company->confirmation_next_due,
+                    'company_id'    => $company->id,
+                    'type'          => 'confirmation_statement',
+                    'period_end_on' => $company->confirmation_next_made_up_to,
+                    'due_on'        => $company->confirmation_next_due,
                 ],
                 [
                     'status' => $company->confirmation_overdue ? 'overdue' : 'upcoming',
@@ -129,8 +128,12 @@ class CompanyImportController extends Controller
      *
      * @param array<string,mixed> $history
      */
-    private function insertLateAccountDeadlinesFromHistory(Company $company, array $history, ?string $companyType, ?Carbon $incDate): void
-    {
+    private function insertLateAccountDeadlinesFromHistory(
+        Company $company,
+        array $history,
+        ?string $companyType,
+        ?Carbon $incDate
+    ): void {
         $items = $history['items'] ?? [];
 
         // Build a normalized list: [period_end_on, filed_on, maybe period_start_on]
@@ -237,4 +240,3 @@ class CompanyImportController extends Controller
         return $periodEnd->copy()->addMonths($isPlc ? 6 : 9);
     }
 }
-

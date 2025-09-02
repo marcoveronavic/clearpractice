@@ -8,11 +8,13 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB; // ← ADDED
 use Illuminate\Routing\Middleware\SubstituteBindings;
 
 use App\Models\User;
 use App\Models\Practice;
 use App\Models\Invitation;
+use App\Models\Deadline; // used by deadlines page
 
 use App\Mail\InviteUser;
 
@@ -22,7 +24,8 @@ use App\Http\Controllers\IndividualController;
 use App\Http\Controllers\InviteController;
 use App\Http\Controllers\CompanyCardController;
 use App\Http\Controllers\CHSearchController;   // CH JSON proxy
-use App\Http\Controllers\CompanyImportController; // <- Add company from CH (creates deadlines)
+use App\Http\Controllers\CompanyImportController; // Add company from CH (creates deadlines)
+use App\Http\Controllers\ClientImportController;   // Add director to clients
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 
 /*
@@ -92,7 +95,6 @@ Route::post('/login', function (Request $request) {
         return redirect()->route('verification.notice');
     }
 
-    // Redirect to that user's workspace URL
     return $practice
         ? redirect()->route('practice.users.index', $practice->slug)->with('status', 'Welcome back!')
         : redirect()->route('practices.create')->with('status', 'Let’s create your practice.');
@@ -203,32 +205,26 @@ Route::post('/invites/{token}', [InviteController::class, 'accept'])->name('invi
 |--------------------------------------------------------------------------
 | Global CH import endpoint (non-workspace path; used by generic JS)
 |--------------------------------------------------------------------------
-|
-| This duplicates the practice-scoped route below so calls to
-| /companies/from-ch also work if the current page isn’t under /p/{slug}.
-|
 */
 Route::middleware(['auth','verified'])->group(function () {
     Route::post('/companies/from-ch', [CompanyImportController::class, 'store'])
         ->name('companies.import');
+
+    Route::post('/clients/from-ch', [ClientImportController::class, 'store'])
+        ->name('clients.import');
 });
 
 /*
 |--------------------------------------------------------------------------
 | Workspace routes (practice-scoped)  →  /p/{slug}/...
 |--------------------------------------------------------------------------
-|
-| Use closures (not Route::view) so we pass the Practice model to views.
-| Route::view would merge route params into view data and can overwrite
-| $practice with the slug string.
-|
 */
 Route::prefix('/p/{practice:slug}')
     ->middleware([
-        SubstituteBindings::class,                        // ensure {practice} is bound first
+        SubstituteBindings::class,
         'auth',
         'verified',
-        \App\Http\Middleware\EnsurePracticeAccess::class, // workspace access gate
+        \App\Http\Middleware\EnsurePracticeAccess::class,
     ])
     ->group(function () {
 
@@ -242,7 +238,7 @@ Route::prefix('/p/{practice:slug}')
             return view('ch', ['practice' => $practice]);
         })->name('practice.ch.page');
 
-        // CH Search JSON proxy (keeps API key server-side)
+        // CH Search JSON proxy
         Route::get('/ch/search', [CHSearchController::class, 'search'])
             ->name('practice.ch.search');
 
@@ -318,10 +314,16 @@ Route::prefix('/p/{practice:slug}')
             return back()->with('status', "User removed from {$practice->name}.");
         })->name('practice.users.destroy');
 
-        // Companies
+        // Companies (loads from DB)
         Route::get('/companies', function (Practice $practice) {
+            $user = Auth::user();
+
+            $companies = $user?->companies()
+                ->orderBy('name')
+                ->get() ?? collect();
+
             return view('companies', [
-                'companies' => [],
+                'companies' => $companies,
                 'practice'  => $practice,
             ]);
         })->name('practice.companies.index');
@@ -329,7 +331,7 @@ Route::prefix('/p/{practice:slug}')
         Route::post('/companies', fn () => back()->with('status','Companies store not implemented yet.'))
             ->name('practice.companies.store');
 
-        // Add company from Companies House (AJAX from CH modal) — also creates deadlines
+        // Add company from CH (AJAX)
         Route::post('/companies/from-ch', [CompanyImportController::class, 'store'])
             ->name('practice.companies.import');
 
@@ -337,16 +339,42 @@ Route::prefix('/p/{practice:slug}')
         Route::get('/company-card/{companyNumber}', [CompanyCardController::class, 'show'])
             ->name('practice.company.card');
 
-        // Clients
+        // Clients — **now loads real data** (via client_user pivot)
         Route::get('/clients', function (Practice $practice) {
+            $user = Auth::user();
+
+            $clients = collect();
+            if ($user) {
+                $rows = DB::table('clients')
+                    ->join('client_user', 'clients.id', '=', 'client_user.client_id')
+                    ->where('client_user.user_id', $user->id)
+                    ->select('clients.*')
+                    ->orderByRaw("
+                        COALESCE(NULLIF(TRIM(clients.name), ''),
+                                 NULLIF(TRIM(clients.company_name), ''),
+                                 'zzzz') ASC
+                    ")
+                    ->get();
+
+                // add a display field the blade can show
+                $clients = $rows->map(function ($c) {
+                    $c->display = $c->name ?: $c->company_name ?: ('Client #'.$c->id);
+                    return $c;
+                });
+            }
+
             return view('clients', [
-                'clients'   => [],
-                'practice'  => $practice,
+                'clients'  => $clients,   // ← NOT empty anymore
+                'practice' => $practice,
             ]);
         })->name('practice.clients.index');
 
         Route::post('/clients', fn () => back()->with('status','Clients store not implemented yet.'))
             ->name('practice.clients.store');
+
+        // Add director to clients (AJAX)
+        Route::post('/clients/from-ch', [ClientImportController::class, 'store'])
+            ->name('practice.clients.import');
 
         // Tasks
         if (class_exists(TaskController::class)) {
@@ -363,13 +391,121 @@ Route::prefix('/p/{practice:slug}')
             })->name('practice.tasks.index');
         }
 
-        // Deadlines
+        // Deadlines (next only; EU year_end + display_due; split sections; remove filed_late/historical)
         Route::get('/deadlines', function (Practice $practice) {
+            $user = Auth::user();
+
+            // Company ids linked to this user
+            $companyIds = $user?->companies()->select('companies.id')->pluck('id') ?? collect();
+            $companies  = \App\Models\Company::whereIn('id', $companyIds)->get()->keyBy('id');
+
+            // Ensure the upcoming rows exist (from CH profile fields)
+            foreach ($companies as $co) {
+                // Accounts (next)
+                if ($co->accounts_next_due && $co->accounts_next_period_end_on) {
+                    Deadline::updateOrCreate(
+                        [
+                            'company_id'    => $co->id,
+                            'type'          => 'accounts',
+                            'period_end_on' => $co->accounts_next_period_end_on,
+                            'due_on'        => $co->accounts_next_due,
+                        ],
+                        [
+                            'status' => $co->accounts_overdue ? 'overdue' : 'upcoming',
+                            'notes'  => 'Next accounts deadline from CH profile',
+                        ]
+                    );
+                }
+
+                // Confirmation statement (next)
+                if ($co->confirmation_next_due && $co->confirmation_next_made_up_to) {
+                    Deadline::updateOrCreate(
+                        [
+                            'company_id'    => $co->id,
+                            'type'          => 'confirmation_statement',
+                            'period_end_on' => $co->confirmation_next_made_up_to,
+                            'due_on'        => $co->confirmation_next_due,
+                        ],
+                        [
+                            'status' => $co->confirmation_overdue ? 'overdue' : 'upcoming',
+                            'notes'  => 'Next confirmation statement deadline from CH profile',
+                        ]
+                    );
+                }
+            }
+
+            // Pull only "live" deadlines (exclude historical "filed_late")
+            $rows = Deadline::whereIn('company_id', $companyIds)
+                ->whereIn('type', ['accounts','confirmation_statement'])
+                ->where(function($q){
+                    $q->whereNull('status')->orWhereIn('status', ['upcoming','overdue']);
+                })
+                ->orderBy('type')
+                ->orderBy('due_on')
+                ->get();
+
+            // Keep only the *next* one per (company_id, type)
+            $nextPerType = [];
+            foreach ($rows as $d) {
+                $key = $d->company_id.'|'.$d->type;
+                if (!isset($nextPerType[$key])) {
+                    $nextPerType[$key] = $d;
+                } else {
+                    $curr = $nextPerType[$key];
+                    $dDue = $d->due_on ? \Carbon\Carbon::parse($d->due_on) : null;
+                    $cDue = $curr->due_on ? \Carbon\Carbon::parse($curr->due_on) : null;
+                    if ($dDue && $cDue && $dDue->lt($cDue)) {
+                        $nextPerType[$key] = $d;
+                    }
+                }
+            }
+            $rows = collect(array_values($nextPerType));
+
+            // Helpers
+            $prettyType = function (string $type): string {
+                return $type === 'accounts'
+                    ? 'Accounts'
+                    : ($type === 'confirmation_statement' ? 'Confirmation statement'
+                        : ucwords(str_replace('_', ' ', $type)));
+            };
+            $fmtDue = function (?string $dueStr): string {
+                if (!$dueStr) return '—';
+                $due   = \Carbon\Carbon::parse($dueStr)->startOfDay();
+                $today = now()->startOfDay();
+                $diff  = $today->diffInDays($due, false);
+                $label = $due->format('d/m/Y');
+                if     ($diff > 0)  { $label .= ' (in '.$diff.' days)'; }
+                elseif ($diff === 0){ $label .= ' (today)'; }
+                else                { $label .= ' ('.abs($diff).' days late)'; }
+                return $label;
+            };
+
+            // Build two sections + a combined list
+            $accounts = [];
+            $confirmations = [];
+            $combined = [];
+
+            foreach ($rows as $d) {
+                $co = $companies->get($d->company_id);
+                $d->title       = ($co?->name) ? ($prettyType($d->type).' — '.$co->name) : $prettyType($d->type);
+                $d->year_end    = $d->period_end_on ? \Carbon\Carbon::parse($d->period_end_on)->format('d/m/Y') : '—';
+                $d->display_due = $fmtDue($d->due_on);
+
+                $combined[] = $d;
+                if ($d->type === 'accounts') {
+                    $accounts[] = $d;
+                } elseif ($d->type === 'confirmation_statement') {
+                    $confirmations[] = $d;
+                }
+            }
+
             return view('deadlines', [
-                'deadlines' => [],
-                'auto'      => [],
-                'manual'    => [],
-                'practice'  => $practice,
+                'deadlines'     => collect($combined),
+                'auto'          => collect($combined),
+                'manual'        => collect(),
+                'accounts'      => $accounts,
+                'confirmations' => $confirmations,
+                'practice'      => $practice,
             ]);
         })->name('practice.deadlines.index');
 
@@ -404,7 +540,4 @@ Route::middleware(['auth','verified'])->group(function () {
     Route::get('/clients',   fn () => $toActive('practice.clients.index'))->name('clients.index');
     Route::get('/tasks',     fn () => $toActive('practice.tasks.index'))->name('tasks.index');
     Route::get('/deadlines', fn () => $toActive('practice.deadlines.index'))->name('deadlines.index');
-
-    // If you need old flat names for specific subroutes, add opt-in aliases here.
-    // (Avoid duplicating 'practice.company.card' outside the workspace.)
 });
