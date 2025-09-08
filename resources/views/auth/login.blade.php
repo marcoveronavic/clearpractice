@@ -12,6 +12,8 @@
         input,button{font-size:16px;padding:10px 12px}
         input{width:100%;border:1px solid #d7dbe2;border-radius:8px;background:#fff}
         button{border:none;border-radius:8px;cursor:pointer;background:#111827;color:#fff}
+        .btn-light{border:1px solid #d1d5db;background:#fff;color:#111827}
+        .btn-row{display:flex;gap:8px;align-items:center}
         .error{color:#b91c1c;font-size:14px;margin-top:6px}
         a{color:#2563eb;text-decoration:none}
     </style>
@@ -28,23 +30,73 @@
         <div class="error">{{ $errors->first() }}</div>
     @endif
 
-    <form method="POST" action="{{ route('login.post') }}">
+    <form id="loginForm" method="POST" action="{{ route('login.post') }}">
         @csrf
         <div>
             <label>Email</label>
-            <input type="email" name="email" value="{{ old('email') }}" required>
+            <input id="loginEmail" type="email" name="email" value="{{ old('email') }}" required>
         </div>
         <div>
             <label>Password</label>
             <input type="password" name="password" required>
         </div>
-        <div>
+
+        <div class="btn-row">
             <button type="submit">Sign in</button>
+
+            {{-- Forgot password button RIGHT NEXT to "Sign in" --}}
+            <button id="forgotBtn" type="button" class="btn-light">I forgot my password</button>
+
+            {{-- Fallback link (only shown if JS disabled) --}}
+            <noscript>
+                @if (Route::has('password.request'))
+                    <a class="btn-light" href="{{ route('password.request') }}" style="padding:10px 12px;border-radius:8px">I forgot my password</a>
+                @else
+                    <a class="btn-light" href="/password/forgot" style="padding:10px 12px;border-radius:8px">I forgot my password</a>
+                @endif
+            </noscript>
         </div>
     </form>
 
     <p style="margin-top:10px">No account? <a href="{{ route('register') }}">Create one</a>.</p>
 </div>
+
+<script>
+    (function () {
+        const btn   = document.getElementById('forgotBtn');
+        const email = document.getElementById('loginEmail');
+
+        if (!btn) return;
+
+        btn.addEventListener('click', function () {
+            const em = (email?.value || '').trim();
+            if (!em) {
+                alert('Type your email address first, then click “I forgot my password”.');
+                email?.focus();
+                return;
+            }
+
+            // Build and submit a separate POST to the password email route
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '{{ route('password.email') }}';
+
+            const csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = '_token';
+            csrf.value = '{{ csrf_token() }}';
+
+            const e = document.createElement('input');
+            e.type = 'hidden';
+            e.name = 'email';
+            e.value = em;
+
+            form.appendChild(csrf);
+            form.appendChild(e);
+            document.body.appendChild(form);
+            form.submit();
+        });
+    })();
+</script>
 </body>
 </html>
-

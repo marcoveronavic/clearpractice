@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class Practice extends Model
@@ -16,19 +17,16 @@ class Practice extends Model
         'name',
         'owner_id',
         'slug',
+        'onedrive_drive_id',
+        'onedrive_drive_type',
+        'onedrive_base_path',
     ];
 
-    /**
-     * Owner of the practice.
-     */
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_id');
     }
 
-    /**
-     * Members of the practice.
-     */
     public function members(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'practice_user')
@@ -36,9 +34,6 @@ class Practice extends Model
             ->withPivot('role');
     }
 
-    /**
-     * Auto-generate a unique slug when creating.
-     */
     protected static function booted(): void
     {
         static::creating(function (Practice $practice) {
@@ -52,5 +47,26 @@ class Practice extends Model
                 $practice->slug = $slug;
             }
         });
+    }
+
+    public function hasOneDrive(): bool
+    {
+        return ! empty($this->onedrive_drive_id);
+    }
+
+    public function oneDriveDisk()
+    {
+        if (! $this->hasOneDrive()) {
+            throw new \RuntimeException('OneDrive not connected');
+        }
+        return Storage::build([
+            'driver'  => 'msgraph',
+            'driveId' => $this->onedrive_drive_id,
+        ]);
+    }
+
+    public function oneDriveBase(): string
+    {
+        return $this->onedrive_base_path ? trim($this->onedrive_base_path, '/').'/' : '';
     }
 }

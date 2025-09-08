@@ -20,20 +20,32 @@ use App\Mail\InviteUser;
 
 use App\Http\Controllers\PracticeController;
 use App\Http\Controllers\TaskController;
+use App\Http\Controllers\LandingController;
 use App\Http\Controllers\IndividualController;
 use App\Http\Controllers\InviteController;
 use App\Http\Controllers\CompanyCardController;
 use App\Http\Controllers\CHSearchController;
 use App\Http\Controllers\CompanyImportController;
 use App\Http\Controllers\ClientImportController;
+use App\Http\Controllers\CompanyDocumentsController; // OneDrive per-company actions
+use App\Http\Controllers\OneDriveController;          // OneDrive settings + OAuth
+use App\Http\Controllers\S3DocumentController;        // S3 documents (settings + company)
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
+
+use App\Http\Controllers\HmrcController;                 // existing
+use App\Http\Controllers\Auth\PasswordResetController;   // existing
+use Dcblogdev\MsGraph\Facades\MsGraph;                   // for OneDrive listing
 
 /*
 |--------------------------------------------------------------------------
-| Landing (canvas top page)
+| Root landing + dashboard
 |--------------------------------------------------------------------------
 */
-Route::view('/', 'setup.landing')->name('landing');
+Route::get('/', [LandingController::class, 'index'])->name('landing');
+
+Route::view('/dashboard', 'dashboard')
+    ->middleware(['auth', 'verified'])
+    ->name('dashboard');
 
 /*
 |--------------------------------------------------------------------------
@@ -106,6 +118,53 @@ Route::post('/logout', function (Request $request) {
     $request->session()->regenerateToken();
     return redirect()->route('landing')->with('status', 'Logged out.');
 })->name('logout');
+
+/*
+|--------------------------------------------------------------------------
+| Password reset
+|--------------------------------------------------------------------------
+*/
+Route::get('/password/forgot', [PasswordResetController::class, 'showRequestForm'])
+    ->name('password.request');
+
+Route::post('/password/email', [PasswordResetController::class, 'sendLink'])
+    ->name('password.email');
+
+Route::get('/password/reset/{token}', [PasswordResetController::class, 'showResetForm'])
+    ->name('password.reset');
+
+Route::post('/password/reset', [PasswordResetController::class, 'handleReset'])
+    ->name('password.update');
+
+/*
+|--------------------------------------------------------------------------
+| OneDrive OAuth + Settings (keep OAuth route public)
+|--------------------------------------------------------------------------
+*/
+Route::get('/msgraph/oauth', [OneDriveController::class, 'connect'])
+    ->name('msgraph.oauth');
+
+// 🔎 TEMP DEBUG: shows query string returned by Microsoft (remove after debugging)
+Route::get('/msgraph/debug', function (Request $r) {
+    return response()->json($r->all(), 200, [], JSON_PRETTY_PRINT);
+})->name('msgraph.debug');
+
+Route::middleware(['web','auth'])->group(function () {
+    Route::get('/integrations/onedrive', [OneDriveController::class, 'landing'])
+        ->name('onedrive.landing');
+    Route::post('/integrations/onedrive/create-folder', [OneDriveController::class, 'createFolder'])
+        ->name('onedrive.createFolder');
+    Route::post('/integrations/onedrive/save', [OneDriveController::class, 'save'])
+        ->name('onedrive.save');
+    Route::post('/integrations/onedrive/upload-test', [OneDriveController::class, 'uploadTest'])
+        ->name('onedrive.uploadTest');
+
+    // In-app OneDrive browser + open in OneDrive
+    Route::get('/integrations/onedrive/browse/{encoded?}', [OneDriveController::class, 'browse'])
+        ->name('onedrive.browse');
+    Route::get('/integrations/onedrive/open/{encoded}', [OneDriveController::class, 'openInOneDrive'])
+        ->name('onedrive.open');
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -203,7 +262,7 @@ Route::post('/invites/{token}', [InviteController::class, 'accept'])->name('invi
 
 /*
 |--------------------------------------------------------------------------
-| Global CH import endpoint (non-workspace path; used by generic JS)
+| Global CH import endpoints (generic)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth','verified'])->group(function () {
@@ -338,7 +397,7 @@ Route::prefix('/p/{practice:slug}')
         /*
         |--------------------------------------------------------------------------
         | Company details page → /p/{practice}/companies/{companyParam}
-        | Resolves by id | company_number | exact name (case-insensitive) | slug (if column exists)
+        | Resolves by id | company_number | exact name | slug (if column exists)
         |--------------------------------------------------------------------------
         */
         Route::get('/companies/{companyParam}', function (Practice $practice, string $companyParam) {
@@ -416,40 +475,28 @@ Route::prefix('/p/{practice:slug}')
                 'overdue'         => $csOverdue,
             ];
 
-            // Not persisted yet (placeholders; your Blade handles empty arrays)
-            $officersActive   = [];
-            $officersResigned = [];
-            $pscsCurrent      = [];
-            $pscsFormer       = [];
+            // ---------- OneDrive data for the Documents tab ----------
+            $onedrive = [
+                'connected' => $practice->hasOneDrive(),
+                'items'     => [],
+                'webUrl'    => null,
+                'folderRel' => $practice->oneDriveBase().'companies/'.
+                    ($company->slug ?: Str::slug($company->name) ?: ('company-'.$company->id)),
+            ];
 
-            /*
-            |--------------------------------------------------------------------------
-            | NEXT-ONLY deadlines for this company (to match /deadlines page)
-            | Also fetch a small "late filing history" list (optional in the view)
-            |--------------------------------------------------------------------------
-            */
-            $rows = Deadline::where('company_id', $company->id)
-                ->whereIn('type', ['accounts','confirmation_statement'])
-                ->where(function ($q) {
-                    $q->whereNull('status')->orWhereIn('status', ['upcoming','overdue']);
-                })
-                ->orderBy('type')
-                ->orderBy('due_on')
-                ->get();
+            if ($onedrive['connected']) {
+                try {
+                    $driveId = $practice->onedrive_drive_id;
+                    $item = MsGraph::get("/drives/{$driveId}/root:/{$onedrive['folderRel']}");
+                    $onedrive['webUrl'] = $item['webUrl'] ?? null;
 
-            $nextByType = [];
-            foreach ($rows as $row) {
-                if (! isset($nextByType[$row->type])) { // first (earliest) per type
-                    $nextByType[$row->type] = $row;
+                    $resp = MsGraph::get("/drives/{$driveId}/root:/{$onedrive['folderRel']}:/children");
+                    $onedrive['items'] = $resp['value'] ?? [];
+                } catch (\Throwable $e) {
+                    $onedrive['items'] = [];
                 }
             }
-            $nextDeadlines = array_values($nextByType);
-
-            $lateHistory = Deadline::where('company_id', $company->id)
-                ->whereIn('type', ['accounts','confirmation_statement'])
-                ->where('status', 'filed_late')
-                ->orderBy('period_end_on', 'desc')
-                ->get();
+            // ---------------------------------------------------------
 
             return view('companies.show', [
                 'practice'         => $practice,
@@ -460,10 +507,48 @@ Route::prefix('/p/{practice:slug}')
                 'officersResigned' => $officersResigned,
                 'pscsCurrent'      => $pscsCurrent,
                 'pscsFormer'       => $pscsFormer,
-                'nextDeadlines'    => $nextDeadlines,   // ← used by the Deadlines tab
-                'lateHistory'      => $lateHistory,     // ← optional history table
+                'nextDeadlines'    => $nextDeadlines,
+                'lateHistory'      => $lateHistory,
+                'onedrive'         => $onedrive,
             ]);
         })->name('practice.companies.show');
+
+        // Companies → Documents (OneDrive actions)
+        Route::post('/companies/{companyParam}/documents/folder', [CompanyDocumentsController::class, 'createFolder'])->name('practice.companies.documents.folder');
+        Route::post('/companies/{companyParam}/documents/upload', [CompanyDocumentsController::class, 'upload'])->name('practice.companies.documents.upload');
+        Route::get('/companies/{companyParam}/documents/dl/{encoded}', [CompanyDocumentsController::class, 'download'])->name('practice.companies.documents.download');
+        Route::delete('/companies/{companyParam}/documents/rm/{encoded}', [CompanyDocumentsController::class, 'delete'])->name('practice.companies.documents.delete');
+
+        // ----- S3 SETTINGS (practice-scoped) -----
+        Route::get('/settings/s3', [S3DocumentController::class, 'settings'])
+            ->name('practice.settings.s3');
+        Route::post('/settings/s3', [S3DocumentController::class, 'saveSettings'])
+            ->name('practice.settings.s3.save');
+
+        // ----- S3 COMPANY DOCUMENTS -----
+        Route::get('/companies/{companyParam}/documents/s3', [S3DocumentController::class, 'showCompany'])
+            ->name('practice.companies.docs.s3');
+
+        Route::post('/companies/{companyParam}/documents/s3/folder', [S3DocumentController::class, 'createFolder'])
+            ->name('practice.companies.docs.s3.folder');
+
+        Route::post('/companies/{companyParam}/documents/s3/upload', [S3DocumentController::class, 'upload'])
+            ->name('practice.companies.docs.s3.upload');
+
+        Route::get('/companies/{companyParam}/documents/s3/preview/{encoded}', [S3DocumentController::class, 'preview'])
+            ->name('practice.companies.docs.s3.preview');
+
+        Route::get('/companies/{companyParam}/documents/s3/open/{encoded}', [S3DocumentController::class, 'open'])
+            ->name('practice.companies.docs.s3.open');
+
+        Route::get('/companies/{companyParam}/documents/s3/dl/{encoded}', [S3DocumentController::class, 'download'])
+            ->name('practice.companies.docs.s3.download');
+
+        Route::post('/companies/{companyParam}/documents/s3/share/{encoded}', [S3DocumentController::class, 'share'])
+            ->name('practice.companies.docs.s3.share');
+
+        Route::delete('/companies/{companyParam}/documents/s3/rm/{encoded}', [S3DocumentController::class, 'delete'])
+            ->name('practice.companies.docs.s3.delete');
 
         // Clients — loads real data (via client_user pivot)
         Route::get('/clients', function (Practice $practice) {
@@ -523,7 +608,6 @@ Route::prefix('/p/{practice:slug}')
             $companyIds = $user?->companies()->select('companies.id')->pluck('id') ?? collect();
             $companies  = \App\Models\Company::whereIn('id', $companyIds)->get()->keyBy('id');
 
-            // ensure the "next" deadlines exist, based on CH profile fields
             foreach ($companies as $co) {
                 if ($co->accounts_next_due && $co->accounts_next_period_end_on) {
                     Deadline::updateOrCreate(
@@ -636,7 +720,20 @@ Route::prefix('/p/{practice:slug}')
 
         Route::match(['GET','POST'], '/deadlines/refresh-all', fn () => back()->with('status','Deadlines refresh queued (stub).'))
             ->name('practice.deadlines.refreshAll');
+
+        // HMRC VAT routes
+        Route::get('/companies/{company}/hmrc/connect', [HmrcController::class, 'connectForCompany'])->name('practice.hmrc.connect');
+        Route::get('/companies/{company}/hmrc/obligations', [HmrcController::class, 'obligationsForCompany'])->name('practice.hmrc.obligations');
     });
+
+/*
+|--------------------------------------------------------------------------
+| HMRC OAuth callback (existing)
+|--------------------------------------------------------------------------
+*/
+Route::get('/hmrc/callback', [HmrcController::class, 'callback'])
+    ->middleware(['auth'])
+    ->name('hmrc.callback');
 
 /*
 |--------------------------------------------------------------------------
