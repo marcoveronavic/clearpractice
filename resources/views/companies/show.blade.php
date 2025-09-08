@@ -195,7 +195,7 @@
                                     </div>
                                     <div>
                                         <span class="dot gray"></span>
-                                        <strong>Non‑billable</strong>
+                                        <strong>Non-billable</strong>
                                         <span class="muted" style="margin-left:6px">{{ $nonbillAmt }}</span>
                                         <span class="muted" style="margin-left:8px">{{ $nonbillHrs }}</span>
                                     </div>
@@ -222,7 +222,22 @@
             <section id="tab-details" class="tab-panel" hidden aria-labelledby="tabbtn-details">
                 <div class="grid-12">
                     <div class="card span-8">
-                        <h3>Details</h3>
+                        <div style="display:flex; align-items:center; gap:12px; margin:0 0 12px">
+                            <h3 style="margin:0">Details</h3>
+                            <div style="flex:1"></div>
+                            @include('companies._edit_button')
+                            @if ($company->vat_number)
+                                <a class="btn pill"
+                                   href="{{ route('practice.hmrc.connect', [$practice->slug, $company->id]) }}">
+                                    Connect HMRC VAT (MTD)
+                                </a>
+                                <a class="btn"
+                                   href="{{ route('practice.hmrc.obligations', [$practice->slug, $company->id]) }}">
+                                    Fetch VAT obligations
+                                </a>
+                            @endif
+                        </div>
+
                         <div class="row"><div class="label">Email</div><div>{{ $company->email ?: '—' }}</div></div>
                         <div class="row"><div class="label">Telephone</div><div>{{ $company->telephone ?: '—' }}</div></div>
                         <div class="row"><div class="label">VAT Reg. number</div><div>{{ $company->vat_number ?: '—' }}</div></div>
@@ -322,8 +337,18 @@
 
             {{-- DOCUMENTS --}}
             <section id="tab-docs" class="tab-panel" hidden aria-labelledby="tabbtn-docs">
-                <div class="card"><h3>Documents</h3>
-                    <p class="muted">Connect to storage later.</p></div>
+                <div class="card">
+                    <h3>Documents</h3>
+
+                    @include('companies.partials.onedrive', [
+                      'practice'  => $practice,
+                      'company'   => $company,
+                      'connected' => $onedrive['connected'] ?? false,
+                      'items'     => $onedrive['items'] ?? [],
+                      'webUrl'    => $onedrive['webUrl'] ?? null,
+                      'folderRel' => $onedrive['folderRel'] ?? '',
+                    ])
+                </div>
             </section>
 
             {{-- TASKS --}}
