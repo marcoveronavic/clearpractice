@@ -1,283 +1,483 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Companies</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <style>
-      :root { --border:#e5e7eb; --muted:#6b7280; --bg:#f9fafb; }
-      * { box-sizing: border-box; }
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; color:#111827; }
-      h1 { margin: 0 0 14px; }
-      form.add { display:flex; gap:10px; margin: 10px 0 18px; }
-      input[type=text] { padding:10px 12px; border:1px solid var(--border); border-radius:10px; flex:1; }
-      button { padding:10px 14px; border:1px solid #111827; background:#111827; color:#fff; border-radius:10px; cursor:pointer; }
-      .msg { padding:10px 12px; border-radius:10px; margin-bottom:12px; }
-      .ok { background:#ecfdf5; border:1px solid #10b981; color:#065f46; }
-      .err { background:#fef2f2; border:1px solid #ef4444; color:#7f1d1d; }
-      table { width:100%; border-collapse: collapse; }
-      th, td { padding:10px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; }
-      th { background: var(--bg); }
-      .actions a, .actions form, .actions button { display:inline-block; margin-right:8px; }
-      .del { border:1px solid #ef4444; color:#ef4444; background:#fff; }
-      .muted { color: var(--muted); }
-      .nav { margin-bottom: 8px; }
-      .nav a { margin-right: 10px; color:#2563eb; text-decoration:none; }
-      .nav a:hover { text-decoration:underline; }
+@extends('layouts.app')
 
-      /* Modal */
-      .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; align-items: center; justify-content: center; padding: 20px; }
-      .modal { width: 560px; max-width: 100%; background: #fff; border:1px solid var(--border); border-radius: 12px; padding: 16px; }
-      .modal h2 { margin: 6px 0 10px; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-      .field { display:flex; flex-direction: column; gap:6px; margin-bottom: 10px; }
-      .field input, .field select { padding:10px 12px; border:1px solid var(--border); border-radius:10px; }
-      .modal-actions { display:flex; gap:10px; justify-content:flex-end; margin-top: 8px; }
-      .btn { padding:10px 14px; border-radius:10px; border:1px solid #111827; background:#111827; color:#fff; cursor:pointer; }
-      .btn.secondary { background:#fff; color:#111827; }
-      .btn[disabled]{ opacity:.6; cursor:not-allowed; }
-      .small { font-size: 12px; }
-      .tag { display:inline-block; padding:2px 8px; border:1px solid var(--border); border-radius:999px; margin-right:6px; font-size:12px; }
+@section('content')
+    <style>
+        .cp-card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; }
+        .cp-table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; min-width:1400px; }
+        .cp-table thead th {
+            position: sticky; top: 0; z-index: 2;
+            background:#f7f7f8; color:#111827; font-weight:600;
+            border-bottom:1px solid #e5e7eb; padding:10px 12px; text-align:left; white-space:nowrap;
+        }
+        .cp-table tbody td { border-bottom:1px solid #f1f5f9; padding:10px 12px; vertical-align:middle; }
+        .cp-table tbody tr:hover { background:#fafafa; }
+        .cp-badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:12px; }
+        .cp-link { color:#2563eb; text-decoration:underline; }
+        .cp-muted { color:#6b7280; }
+        .cp-right { text-align:right; }
+        .cp-nowrap { white-space:nowrap; }
+        .cp-actions a { margin-right:10px; }
+        .cp-pill { display:inline-block; padding:2px 8px; border:1px solid #e5e7eb; border-radius:999px; font-size:12px; color:#374151; background:#fff; }
+        .cp-sticky-wrap { overflow:auto; max-height: calc(100vh - 220px); }
+        .cp-heading { font-size:22px; font-weight:700; margin:0 0 14px; }
+        .cp-subtle { font-size:12px; color:#6b7280; }
+        .is-hidden { display:none !important; }
+
+        th.cp-sort { cursor:pointer; user-select:none; }
+        th.cp-sort .arrow { display:inline-block; margin-left:6px; font-size:11px; color:#9ca3af; }
+        th.cp-sort.asc .arrow::after { content:"▲"; }
+        th.cp-sort.desc .arrow::after { content:"▼"; }
+
+        .cp-btn { appearance:none; border:1px solid #e5e7eb; background:#fff; padding:8px 12px; border-radius:8px; cursor:pointer; font-size:14px; color:#111827; }
+        .cp-btn:hover { background:#f9fafb; }
+
+        body.cp-modal-open { overflow: hidden; }
+        .cp-modal-backdrop { position:fixed; inset:0; background:rgba(17,24,39,.45); display:none; align-items:center; justify-content:center; z-index:9998; }
+        .cp-modal { width:520px; max-width:92vw; background:#fff; border-radius:10px; border:1px solid #e5e7eb; box-shadow:0 10px 30px rgba(0,0,0,.15); z-index:9999; }
+        .cp-modal header { padding:14px 16px; border-bottom:1px solid #eef2f7; display:flex; align-items:center; justify-content:space-between; }
+        .cp-modal header h3 { margin:0; font-size:16px; font-weight:700; }
+        .cp-modal .cp-close { border:none; background:transparent; font-size:18px; cursor:pointer; color:#6b7280; }
+        .cp-modal .cp-body { padding:12px 16px; max-height:68vh; overflow:auto; }
+        .cp-toggle { display:flex; align-items:center; justify-content:space-between; padding:10px 6px; border-bottom:1px dashed #f0f2f5; }
+        .cp-toggle:last-child { border-bottom:none; }
+        .cp-toggle .label { font-size:14px; color:#111827; }
+
+        .switch { position:relative; width:44px; height:24px; display:inline-block; }
+        .switch input { position:absolute; opacity:0; inset:0; width:100%; height:100%; cursor:pointer; }
+        .slider { position:absolute; inset:0; background:#e5e7eb; transition:.2s; border-radius:999px; }
+        .slider:before { position:absolute; content:""; height:18px; width:18px; left:3px; top:3px; background:white; transition:.2s; border-radius:50%; box-shadow:0 1px 2px rgba(0,0,0,.1); }
+        .switch input:checked + .slider { background:#22c55e; }
+        .switch input:checked + .slider:before { transform:translateX(20px); }
+
+        /* selects */
+        .cp-select { min-width:180px; padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; font-size:14px; }
+        .cp-select.saving { opacity:0.6; }
+        .cp-select.saved { outline:2px solid #22c55e; transition: outline-color .8s ease; }
     </style>
-  </head>
-  <body>
-    <div class="nav">
-      <a href="{{ url('/ch') }}">Search</a>
-      <a href="{{ route('companies.index') }}"><strong>Companies</strong></a>
-      <a href="{{ url('/clients') }}">Clients</a>
+
+    @php
+        $prefKey = 'cp:companies:cols:' . ($practice->id ?? $practice->slug ?? 'default');
+
+        // Members for dropdowns (use $members if route passed it; otherwise fetch here)
+        $membersList = isset($members)
+            ? $members
+            : ($practice->members()->orderBy('users.name')->get());
+
+        $companyUrl = function($practice, $company) {
+            try {
+                if (\Illuminate\Support\Facades\Route::has('practice.companies.show')) {
+                    return route('practice.companies.show', [$practice, $company->slug ?? $company->id]);
+                }
+                if (\Illuminate\Support\Facades\Route::has('companies.show')) {
+                    return route('companies.show', [$practice, $company]);
+                }
+            } catch (\Throwable $e) {}
+            $p = $practice->slug ?? $practice->id ?? 'practice';
+            $c = $company->slug ?? $company->id ?? 'company';
+            return url('/p/'.$p.'/companies/'.$c);
+        };
+
+        $companiesList = isset($companies) ? $companies : (isset($practice) ? ($practice->companies ?? []) : []);
+    @endphp
+
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+
+    <div class="container" style="max-width:1200px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+            <div>
+                <h1 class="cp-heading">Companies</h1>
+                @isset($practice)
+                    <div class="cp-subtle">Practice: <strong>{{ $practice->name ?? '—' }}</strong></div>
+                @endisset
+            </div>
+            <div style="display:flex; gap:8px;">
+                <button id="cp-columns-btn" class="cp-btn" type="button">Columns</button>
+            </div>
+        </div>
+
+        <div class="cp-card">
+            <div class="cp-sticky-wrap">
+                <table class="cp-table" id="companies-table" data-pref-key="{{ $prefKey }}">
+                    <thead>
+                    <tr>
+                        {{-- Core --}}
+                        <th class="cp-sort" data-key="company" data-col="client"><span>Client</span><span class="arrow"></span></th>
+                        <th class="cp-sort" data-key="contact" data-col="full_name"><span>Full Name</span><span class="arrow"></span></th>
+                        <th class="cp-sort" data-key="type" data-col="client_type"><span>Client Type</span><span class="arrow"></span></th>
+                        <th data-col="partner"><span>Partner</span></th>
+                        <th data-col="services"><span>Services</span></th>
+                        <th class="cp-sort" data-key="manager" data-col="manager"><span>Manager</span><span class="arrow"></span></th>
+                        <th data-col="links"><span>Client Links</span></th>
+                        <th class="cp-sort cp-right" data-key="aml" data-col="aml"><span>Money Laundering Complete</span><span class="arrow"></span></th>
+                        {{-- Extra (toggleable) --}}
+                        <th data-col="status"><span>Company Status</span></th>
+                        <th data-col="incorporation_date"><span>Incorporation Date</span></th>
+                        <th data-col="trading_as"><span>Company Trading As</span></th>
+                        <th data-col="registered_address"><span>Registered Address</span></th>
+                        <th data-col="postal_address"><span>Company Postal Address</span></th>
+                        <th data-col="invoice_address"><span>Invoice Address</span></th>
+                        <th data-col="company_email"><span>Company Email</span></th>
+                        <th data-col="email_domain"><span>Company Email Domain</span></th>
+                        <th data-col="telephone"><span>Company Telephone</span></th>
+                        <th data-col="turnover_currency"><span>Company Turnover (Currency)</span></th>
+                        <th data-col="date_of_trading"><span>Date of Trading</span></th>
+                        <th data-col="sic_code"><span>SIC Code</span></th>
+                        <th data-col="nature_of_business"><span>Nature of Business</span></th>
+                        <th data-col="corp_tax_office"><span>Corporation Tax Office</span></th>
+                        <th data-col="utr"><span>Company UTR / Tax Ref</span></th>
+                        <th data-col="ch_auth"><span>CH Auth Code</span></th>
+                        <th data-col="trading_address"><span>Trading Address</span></th>
+                        <th data-col="commenced_trading_date"><span>Commenced Trading (Date)</span></th>
+                        <th data-col="vat_number"><span>VAT Number</span></th>
+                        <th data-col="accountant"><span>Accountant</span></th>
+                        <th data-col="bookkeeper"><span>Bookkeeper</span></th>
+                        <th data-col="reviewer"><span>Reviewer</span></th>
+                        <th data-col="payroll_prepared"><span>Payroll Prepared By</span></th>
+                    </tr>
+                    </thead>
+
+                    <tbody>
+                    @forelse($companiesList as $company)
+                        @php
+                            $name       = $company->name ?? '—';
+                            $number     = $company->company_number ?? null;
+                            $ctype      = $company->client_type ?? ($company->type ?? null);
+                            $services   = $company->services_list ?? $company->services ?? null; if (is_array($services)) $services = implode(', ', $services);
+                            $contact    = $company->primary_contact_name ?? ($company->contact_name ?? null);
+                            $partner    = $company->partner_name ?? ($company->partner->name ?? null);
+                            $aml        = $company->aml_complete ?? $company->kyc_complete ?? false;
+
+                            // Current assignee IDs (fallback to relations if set)
+                            $managerId    = $company->manager_id    ?? ($company->manager->id ?? null);
+                            $accountantId = $company->accountant_id ?? ($company->accountant->id ?? null);
+                            $bookkeeperId = $company->bookkeeper_id ?? ($company->bookkeeper->id ?? null);
+                            $reviewerId   = $company->reviewer_id   ?? ($company->reviewer->id ?? null);
+                            $payrollId    = $company->payroll_prepared_by_id ?? ($company->payrollPreparer->id ?? null);
+
+                            $vatNumber = $company->vat_number ?? $company->vat_no ?? $company->vat ?? null;
+
+                            // More fields (shown via toggles)
+                            $status     = $company->company_status ?? $company->status ?? null;
+                            $incDateRaw = $company->incorporation_date ?? $company->date_of_creation ?? $company->created_at ?? null;
+                            $incorporationDate = $incDateRaw ? \Carbon\Carbon::parse($incDateRaw)->format('d/m/Y') : null;
+                            $tradingAs  = $company->trading_as ?? $company->company_trading_as ?? $company->aka ?? null;
+
+                            $fmtAddr = function ($addr) {
+                                if (is_string($addr)) {
+                                    $json = json_decode($addr, true);
+                                    if (json_last_error() === JSON_ERROR_NONE) $addr = $json;
+                                }
+                                if (is_array($addr)) {
+                                    return implode(', ', array_filter([
+                                        $addr['address_line_1'] ?? $addr['address_line1'] ?? null,
+                                        $addr['address_line_2'] ?? $addr['address_line2'] ?? null,
+                                        $addr['locality'] ?? $addr['town'] ?? null,
+                                        $addr['region'] ?? null,
+                                        $addr['postal_code'] ?? $addr['postcode'] ?? null,
+                                        $addr['country'] ?? null,
+                                    ]));
+                                }
+                                return is_string($addr) ? $addr : null;
+                            };
+                            $registeredAddress = $fmtAddr($company->registered_office_address ?? $company->address ?? null);
+                            $postalAddress     = $fmtAddr($company->postal_address ?? $company->company_postal_address ?? null);
+                            $invoiceAddress    = $fmtAddr($company->invoice_address ?? null);
+                            $tradingAddress    = $fmtAddr($company->trading_address ?? null);
+
+                            $companyEmail = $company->company_email ?? $company->email ?? null;
+                            $emailDomain  = $company->email_domain ?? ( ($companyEmail && str_contains($companyEmail,'@')) ? substr(strrchr($companyEmail,'@'),1) : null );
+                            $telephone   = $company->telephone ?? $company->phone ?? $company->phone_number ?? null;
+                            $turnoverVal = $company->turnover ?? $company->company_turnover ?? null;
+                            $turnoverCur = $company->turnover_currency ?? $company->currency ?? null;
+                            $turnoverCurrency = $turnoverVal && $turnoverCur ? (number_format((float)$turnoverVal, 0).' '.$turnoverCur) : ($turnoverVal ?? $turnoverCur);
+                            $dateTradingRaw = $company->date_of_trading ?? null;
+                            $dateOfTrading  = $dateTradingRaw ? \Carbon\Carbon::parse($dateTradingRaw)->format('d/m/Y') : null;
+                            $sicCodes = $company->sic_codes ?? $company->sic_code ?? null;
+                            if (is_array($sicCodes)) $sicCodes = implode(', ', $sicCodes);
+                            $natureOfBusiness = $company->nature_of_business ?? $company->business_nature ?? $company->sic_text ?? null;
+                            $corpTaxOffice = $company->corporation_tax_office ?? $company->corp_tax_office ?? null;
+                            $utr       = $company->utr ?? $company->company_tax_reference ?? $company->tax_reference ?? $company->company_utr ?? null;
+                            $chAuth    = $company->ch_auth_code ?? $company->cro_auth_code ?? $company->companies_house_auth_code ?? null;
+                            $commencedRaw = $company->commenced_trading_date ?? $company->commenced_trading ?? null;
+                            $commencedTradingDate = $commencedRaw ? \Carbon\Carbon::parse($commencedRaw)->format('d/m/Y') : null;
+
+                            $showHref   = $companyUrl($practice ?? null, $company);
+                            $chHref     = $number ? ("https://find-and-update.company-information.service.gov.uk/company/".urlencode($number)) : null;
+                            $assignUrl  = route('practice.companies.assignUser', [$practice, $company->slug ?? $company->id]);
+                        @endphp
+                        <tr
+                            data-company="{{ \Illuminate\Support\Str::lower($name) }}"
+                            data-contact="{{ \Illuminate\Support\Str::lower($contact ?? '') }}"
+                            data-type="{{ \Illuminate\Support\Str::lower($ctype ?? '') }}"
+                            data-manager="{{ \Illuminate\Support\Str::lower(optional($membersList->firstWhere('id',$managerId))->name ?? '') }}"
+                            data-aml="{{ $aml ? '1' : '0' }}"
+                        >
+                            {{-- Core --}}
+                            <td class="cp-nowrap" data-col="client">
+                                <a href="{{ $showHref }}" class="cp-link">{{ $name }}</a>
+                                @if($number)<div class="cp-subtle">No. {{ $number }}</div>@endif
+                            </td>
+                            <td data-col="full_name">{{ $contact ?? '—' }}</td>
+                            <td data-col="client_type">@if($ctype)<span class="cp-pill">{{ $ctype }}</span>@else — @endif</td>
+                            <td data-col="partner">{{ $partner ?? '—' }}</td>
+                            <td data-col="services">{{ $services ?? '—' }}</td>
+
+                            {{-- Manager (SELECT DROPDOWN) --}}
+                            <td data-col="manager">
+                                <select class="cp-select cp-user-select"
+                                        data-field="manager"
+                                        data-endpoint="{{ $assignUrl }}">
+                                    <option value="">—</option>
+                                    @foreach ($membersList as $m)
+                                        <option value="{{ $m->id }}" {{ (string)$m->id === (string)$managerId ? 'selected' : '' }}>
+                                            {{ $m->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </td>
+
+                            {{-- Links --}}
+                            <td class="cp-nowrap cp-actions" data-col="links">
+                                @if($chHref)<a href="{{ $chHref }}" target="_blank" class="cp-link">Companies House</a>@endif
+                                @if(\Illuminate\Support\Facades\Route::has('companies.documents'))
+                                    <a href="{{ route('companies.documents', [$practice, $company->slug ?? $company->id]) }}" class="cp-link">Documents</a>
+                                @elseif(\Illuminate\Support\Facades\Route::has('practice.companies.docs.s3'))
+                                    <a href="{{ route('practice.companies.docs.s3', [$practice, $company->slug ?? $company->id]) }}" class="cp-link">Documents</a>
+                                @endif
+                            </td>
+
+                            <td class="cp-right" data-col="aml">@if($aml)<span class="cp-badge">Yes</span>@else<span class="cp-muted">No</span>@endif</td>
+
+                            {{-- Toggleable extras --}}
+                            <td data-col="status">{{ $status ?? '—' }}</td>
+                            <td data-col="incorporation_date">{{ $incorporationDate ?? '—' }}</td>
+                            <td data-col="trading_as">{{ $tradingAs ?? '—' }}</td>
+                            <td data-col="registered_address">{{ $registeredAddress ?? '—' }}</td>
+                            <td data-col="postal_address">{{ $postalAddress ?? '—' }}</td>
+                            <td data-col="invoice_address">{{ $invoiceAddress ?? '—' }}</td>
+                            <td data-col="company_email">
+                                @if(!empty($companyEmail)) <a class="cp-link" href="mailto:{{ $companyEmail }}">{{ $companyEmail }}</a> @else — @endif
+                            </td>
+                            <td data-col="email_domain">{{ $emailDomain ?? '—' }}</td>
+                            <td data-col="telephone">{{ $telephone ?? '—' }}</td>
+                            <td data-col="turnover_currency">{{ $turnoverCurrency ?? '—' }}</td>
+                            <td data-col="date_of_trading">{{ $dateOfTrading ?? '—' }}</td>
+                            <td data-col="sic_code">{{ $sicCodes ?? '—' }}</td>
+                            <td data-col="nature_of_business">{{ $natureOfBusiness ?? '—' }}</td>
+                            <td data-col="corp_tax_office">{{ $corpTaxOffice ?? '—' }}</td>
+                            <td data-col="utr">{{ $utr ?? '—' }}</td>
+                            <td data-col="ch_auth">{{ $chAuth ?? '—' }}</td>
+                            <td data-col="trading_address">{{ $tradingAddress ?? '—' }}</td>
+                            <td data-col="commenced_trading_date">{{ $commencedTradingDate ?? '—' }}</td>
+                            <td data-col="vat_number">{{ $vatNumber ?? '—' }}</td>
+
+                            {{-- Role selects --}}
+                            <td data-col="accountant">
+                                <select class="cp-select cp-user-select"
+                                        data-field="accountant"
+                                        data-endpoint="{{ $assignUrl }}">
+                                    <option value="">—</option>
+                                    @foreach ($membersList as $m)
+                                        <option value="{{ $m->id }}" {{ (string)$m->id === (string)$accountantId ? 'selected' : '' }}>
+                                            {{ $m->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </td>
+                            <td data-col="bookkeeper">
+                                <select class="cp-select cp-user-select"
+                                        data-field="bookkeeper"
+                                        data-endpoint="{{ $assignUrl }}">
+                                    <option value="">—</option>
+                                    @foreach ($membersList as $m)
+                                        <option value="{{ $m->id }}" {{ (string)$m->id === (string)$bookkeeperId ? 'selected' : '' }}>
+                                            {{ $m->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </td>
+                            <td data-col="reviewer">
+                                <select class="cp-select cp-user-select"
+                                        data-field="reviewer"
+                                        data-endpoint="{{ $assignUrl }}">
+                                    <option value="">—</option>
+                                    @foreach ($membersList as $m)
+                                        <option value="{{ $m->id }}" {{ (string)$m->id === (string)$reviewerId ? 'selected' : '' }}>
+                                            {{ $m->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </td>
+                            <td data-col="payroll_prepared">
+                                <select class="cp-select cp-user-select"
+                                        data-field="payroll_prepared"
+                                        data-endpoint="{{ $assignUrl }}">
+                                    <option value="">—</option>
+                                    @foreach ($membersList as $m)
+                                        <option value="{{ $m->id }}" {{ (string)$m->id === (string)$payrollId ? 'selected' : '' }}>
+                                            {{ $m->name }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="32" class="cp-muted">No companies yet.</td></tr>
+                    @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
-    <h1>Companies</h1>
+    <!-- Columns Modal -->
+    <div id="cp-columns-modal" class="cp-modal-backdrop" aria-hidden="true">
+        <div class="cp-modal" role="dialog" aria-modal="true" aria-labelledby="cp-columns-title">
+            <header>
+                <h3 id="cp-columns-title">Columns</h3>
+                <button class="cp-close" type="button" aria-label="Close" id="cp-columns-close">×</button>
+            </header>
+            <div class="cp-body">
+                {{-- Core --}}
+                @foreach ([
+                    ['client','Client',true],
+                    ['full_name','Full Name',true],
+                    ['client_type','Client Type',true],
+                    ['partner','Partner',false],
+                    ['services','Services',true],
+                    ['manager','Manager',true],
+                    ['links','Client Links',true],
+                    ['aml','Money Laundering Complete',true],
+                ] as [$col,$label,$on])
+                    <div class="cp-toggle">
+                        <span class="label">{{ $label }}</span>
+                        <label class="switch"><input type="checkbox" data-col="{{ $col }}" {{ $on ? 'checked' : '' }}><span class="slider"></span></label>
+                    </div>
+                @endforeach
 
-    @if (session('status')) <div class="msg ok">{{ session('status') }}</div> @endif
-    @if (session('error'))  <div class="msg err">{{ session('error') }}</div> @endif
-    @if ($errors->any())
-      <div class="msg err">@foreach ($errors->all() as $e)<div>{{ $e }}</div>@endforeach</div>
-    @endif
-
-    <form class="add" method="POST" action="{{ route('companies.store') }}">
-      @csrf
-      <input type="text" name="number" placeholder="Enter a company number (e.g. 00445790)" required>
-      <button type="submit">Fetch & Save</button>
-    </form>
-
-    @if($companies->count())
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Number</th>
-            <th>Status / Created</th>
-            <th>VAT</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="company-rows">
-          @foreach ($companies as $c)
-            <tr id="row-{{ $c->id }}">
-              <td>
-                <a href="{{ route('ch.company', ['number' => $c->number]) }}">{{ $c->name }}</a>
-                <div class="muted small">{{ $c->address ?? '-' }}</div>
-              </td>
-              <td>{{ $c->number }}</td>
-              <td>
-                {{ $c->status ?? '-' }}<br>
-                <span class="muted small">{{ $c->date_of_creation ? $c->date_of_creation->format('Y-m-d') : '-' }}</span>
-              </td>
-              <td class="small" id="vatcol-{{ $c->id }}">
-                @if($c->vat_number)<span class="tag">VAT: {{ $c->vat_number }}</span>@endif
-                @if($c->utr)<span class="tag">UTR: {{ $c->utr }}</span>@endif
-                @if($c->auth_code)<span class="tag">Auth: {{ $c->auth_code }}</span>@endif
-                @if($c->vat_period)
-                  <span class="tag">
-                    {{ strtoupper($c->vat_period) }}
-                    @if($c->vat_period === 'quarterly' && $c->vat_quarter)
-                      — {{
-                        $c->vat_quarter === 'jan_apr_jul_oct' ? 'Jan/Apr/Jul/Oct' :
-                        ($c->vat_quarter === 'feb_may_nov' ? 'Feb/May/Nov' : 'Mar/Jun/Sep/Dec')
-                      }}
-                    @endif
-                  </span>
-                @endif
-                @if(!$c->vat_number && !$c->utr && !$c->auth_code && !$c->vat_period)
-                  <span class="muted">No VAT data</span>
-                @endif
-              </td>
-              <td class="actions">
-                <a href="{{ route('ch.company', ['number' => $c->number]) }}">Open</a>
-                <a href="https://find-and-update.company-information.service.gov.uk/company/{{ urlencode($c->number) }}" target="_blank" rel="noopener">CH ↗</a>
-                <button class="btn secondary edit-btn"
-                  data-id="{{ $c->id }}"
-                  data-name="{{ $c->name }}"
-                  data-vat-number="{{ $c->vat_number ?? '' }}"
-                  data-utr="{{ $c->utr ?? '' }}"
-                  data-auth="{{ $c->auth_code ?? '' }}"
-                  data-period="{{ $c->vat_period ?? '' }}"
-                  data-quarter="{{ $c->vat_quarter ?? '' }}"
-                >Edit</button>
-                <form method="POST" action="{{ route('companies.destroy', $c->id) }}" onsubmit="return confirm('Delete {{ $c->name }}?');" style="display:inline;">
-                  @csrf @method('DELETE')
-                  <button class="del" type="submit">Delete</button>
-                </form>
-              </td>
-            </tr>
-          @endforeach
-        </tbody>
-      </table>
-    @else
-      <p class="muted">No companies saved yet. Add one above.</p>
-    @endif
-
-    <!-- Modal -->
-    <div id="modal-backdrop" class="modal-backdrop">
-      <div class="modal">
-        <h2 id="modal-title">Edit company</h2>
-        <div class="field">
-          <label>VAT number</label>
-          <input id="f-vat-number" type="text" placeholder="GB123456789">
+                {{-- Extra --}}
+                @foreach ([
+                    ['status','Company Status',false],
+                    ['incorporation_date','Incorporation Date',false],
+                    ['trading_as','Company Trading As',false],
+                    ['registered_address','Registered Address',false],
+                    ['postal_address','Company Postal Address',false],
+                    ['invoice_address','Invoice Address',false],
+                    ['company_email','Company Email',false],
+                    ['email_domain','Company Email Domain',false],
+                    ['telephone','Company Telephone',false],
+                    ['turnover_currency','Company Turnover (Currency)',false],
+                    ['date_of_trading','Date of Trading',false],
+                    ['sic_code','SIC Code',false],
+                    ['nature_of_business','Nature of Business',false],
+                    ['corp_tax_office','Corporation Tax Office',false],
+                    ['utr','Company UTR / Tax Ref',false],
+                    ['ch_auth','CH Auth Code',false],
+                    ['trading_address','Trading Address',false],
+                    ['commenced_trading_date','Commenced Trading (Date)',false],
+                    ['vat_number','VAT Number',false],
+                    ['accountant','Accountant',false],
+                    ['bookkeeper','Bookkeeper',false],
+                    ['reviewer','Reviewer',false],
+                    ['payroll_prepared','Payroll Prepared By',false],
+                ] as [$col,$label,$on])
+                    <div class="cp-toggle">
+                        <span class="label">{{ $label }}</span>
+                        <label class="switch"><input type="checkbox" data-col="{{ $col }}" {{ $on ? 'checked' : '' }}><span class="slider"></span></label>
+                    </div>
+                @endforeach
+            </div>
         </div>
-        <div class="row">
-          <div class="field">
-            <label>UTR</label>
-            <input id="f-utr" type="text" placeholder="10-digit UTR">
-          </div>
-          <div class="field">
-            <label>Authentication code</label>
-            <input id="f-auth" type="text" placeholder="Companies House auth code">
-          </div>
-        </div>
-        <div class="row">
-          <div class="field">
-            <label>VAT period</label>
-            <select id="f-period">
-              <option value="">—</option>
-              <option value="monthly">Monthly</option>
-              <option value="quarterly">Quarterly</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>VAT quarter</label>
-            <select id="f-quarter">
-              <option value="">—</option>
-              <option value="jan_apr_jul_oct">Jan / Apr / Jul / Oct</option>
-              <option value="feb_may_nov">Feb / May / Nov</option>
-              <option value="mar_jun_sep_dec">Mar / Jun / Sep / Dec</option>
-            </select>
-            <div class="small muted">Shown only when period is Quarterly.</div>
-          </div>
-        </div>
-        <div class="modal-actions">
-          <button id="btn-cancel" class="btn secondary" type="button">Cancel</button>
-          <button id="btn-save" class="btn" type="button">Save</button>
-        </div>
-        <div id="modal-msg" class="small muted" style="margin-top:8px;"></div>
-      </div>
     </div>
 
     <script>
-      const CSRF = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-      const UPDATE_URL_TMPL = @json(route('companies.update', ['company' => '___ID___']));
+        (function () {
+            const tbl = document.getElementById('companies-table');
+            if (!tbl) return;
 
-      const backdrop = document.getElementById('modal-backdrop');
-      const titleEl  = document.getElementById('modal-title');
-      const msgEl    = document.getElementById('modal-msg');
-      const fVat     = document.getElementById('f-vat-number');
-      const fUtr     = document.getElementById('f-utr');
-      const fAuth    = document.getElementById('f-auth');
-      const fPeriod  = document.getElementById('f-period');
-      const fQuarter = document.getElementById('f-quarter');
-      const btnSave  = document.getElementById('btn-save');
-      const btnCancel= document.getElementById('btn-cancel');
-
-      let currentId = null;
-
-      function openModalFor(btn) {
-        currentId = btn.dataset.id;
-        titleEl.textContent = 'Edit: ' + (btn.dataset.name || '');
-        fVat.value    = btn.dataset.vatNumber || '';
-        fUtr.value    = btn.dataset.utr || '';
-        fAuth.value   = btn.dataset.auth || '';
-        fPeriod.value = btn.dataset.period || '';
-        fQuarter.value= btn.dataset.quarter || '';
-        toggleQuarter();
-        msgEl.textContent = '';
-        backdrop.style.display = 'flex';
-      }
-      function closeModal(){ backdrop.style.display = 'none'; }
-
-      function toggleQuarter() {
-        const qWrap = fQuarter.parentElement;
-        if (fPeriod.value === 'quarterly') {
-          fQuarter.disabled = false;
-        } else {
-          fQuarter.value = '';
-          fQuarter.disabled = true;
-        }
-      }
-      fPeriod.addEventListener('change', toggleQuarter);
-
-      document.querySelectorAll('.edit-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => { e.preventDefault(); openModalFor(btn); });
-      });
-      btnCancel.addEventListener('click', () => closeModal());
-      backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
-
-      function updateUrl(id){ return UPDATE_URL_TMPL.replace('___ID___', id); }
-
-      btnSave.addEventListener('click', async () => {
-        if (!currentId) return;
-
-        const payload = {
-          vat_number:  fVat.value.trim() || null,
-          utr:         fUtr.value.trim() || null,
-          auth_code:   fAuth.value.trim() || null,
-          vat_period:  fPeriod.value || null,
-          vat_quarter: fPeriod.value === 'quarterly' ? (fQuarter.value || null) : null,
-        };
-
-        try {
-          btnSave.disabled = true; msgEl.textContent = 'Saving…';
-          const res = await fetch(updateUrl(currentId), {
-            method: 'PATCH',
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'X-Requested-With': 'XMLHttpRequest',
-              'X-CSRF-TOKEN': CSRF
-            },
-            body: JSON.stringify(payload)
-          });
-          const data = await res.json();
-          if (!res.ok || data.ok === false) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
-
-          // Update VAT column summary
-          const col = document.getElementById('vatcol-' + currentId);
-          if (col) {
-            const tags = [];
-            if (data.company.vat_number) tags.push(`<span class="tag">VAT: ${data.company.vat_number}</span>`);
-            if (data.company.utr)        tags.push(`<span class="tag">UTR: ${data.company.utr}</span>`);
-            if (data.company.auth_code)  tags.push(`<span class="tag">Auth: ${data.company.auth_code}</span>`);
-            if (data.company.vat_period) {
-              let label = data.company.vat_period.toUpperCase();
-              if (data.company.vat_period === 'quarterly' && data.company.vat_quarter) {
-                label += ' — ' + (data.company.vat_quarter === 'jan_apr_jul_oct' ? 'Jan/Apr/Jul/Oct'
-                        : data.company.vat_quarter === 'feb_may_nov' ? 'Feb/May/Nov'
-                        : 'Mar/Jun/Sep/Dec');
-              }
-              tags.push(`<span class="tag">${label}</span>`);
+            // sorting
+            const getRows = () => Array.from(tbl.tBodies[0].rows);
+            function sortBy(key, th){
+                const rows = getRows();
+                const current = th.classList.contains('asc') ? 'asc' : (th.classList.contains('desc') ? 'desc' : null);
+                const nextDir = current === 'asc' ? 'desc' : 'asc';
+                Array.from(tbl.tHead.rows[0].cells).forEach(c => c.classList.remove('asc','desc'));
+                rows.sort((a,b)=>{
+                    let av=(a.dataset[key]||'').toString(), bv=(b.dataset[key]||'').toString();
+                    if (key==='aml'){ av=parseInt(av||'0',10); bv=parseInt(bv||'0',10); return nextDir==='asc'?(av-bv):(bv-av); }
+                    return nextDir==='asc'? av.localeCompare(bv) : bv.localeCompare(av);
+                }).forEach(r=>tbl.tBodies[0].appendChild(r));
+                th.classList.add(nextDir);
             }
-            col.innerHTML = tags.length ? tags.join(' ') : '<span class="muted">No VAT data</span>';
-          }
+            Array.from(tbl.tHead.rows[0].cells).forEach(th=>{
+                if (th.classList.contains('cp-sort')) th.addEventListener('click', ()=>sortBy(th.dataset.key, th));
+            });
 
-          msgEl.textContent = 'Saved ✓';
-          setTimeout(closeModal, 600);
-        } catch (err) {
-          msgEl.textContent = 'Error: ' + err.message;
-        } finally {
-          btnSave.disabled = false;
-        }
-      });
+            // modal
+            const openBtn=document.getElementById('cp-columns-btn'),
+                modal=document.getElementById('cp-columns-modal'),
+                closeBtn=document.getElementById('cp-columns-close');
+            function open(){ modal.style.display='flex'; document.body.classList.add('cp-modal-open'); }
+            function close(){ modal.style.display='none'; document.body.classList.remove('cp-modal-open'); }
+            openBtn&&openBtn.addEventListener('click', open);
+            closeBtn&&closeBtn.addEventListener('click', close);
+            modal&&modal.addEventListener('click', e=>{ if(e.target===modal) close(); });
+
+            // column prefs
+            const storageKey = tbl.dataset.prefKey || 'cp:companies:cols:default';
+            function setVisible(col, on){ tbl.querySelectorAll('[data-col="'+col+'"]').forEach(el=>el.classList.toggle('is-hidden', !on)); }
+            function load(){ try{const r=localStorage.getItem(storageKey); return r?JSON.parse(r):{};}catch{return{}} }
+            function save(p){ localStorage.setItem(storageKey, JSON.stringify(p)); }
+
+            const defaults = {
+                client:true, full_name:true, client_type:true, partner:false, services:true, manager:true, links:true, aml:true,
+                status:false, incorporation_date:false, trading_as:false, registered_address:false, postal_address:false,
+                invoice_address:false, company_email:false, email_domain:false, telephone:false, turnover_currency:false,
+                date_of_trading:false, sic_code:false, nature_of_business:false, corp_tax_office:false, utr:false, ch_auth:false,
+                trading_address:false, commenced_trading_date:false, vat_number:false, accountant:false, bookkeeper:false,
+                reviewer:false, payroll_prepared:false
+            };
+            const prefs = Object.assign({}, defaults, load());
+            Object.keys(defaults).forEach(col => setVisible(col, prefs[col] !== false));
+
+            document.querySelectorAll('#cp-columns-modal .switch input[data-col]').forEach(cb=>{
+                const col=cb.dataset.col; cb.checked=prefs[col]!==false;
+                cb.addEventListener('change', ()=>{ prefs[col]=cb.checked; save(prefs); setVisible(col, cb.checked); });
+            });
+
+            // AJAX assign user on selects
+            const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            document.querySelectorAll('.cp-user-select').forEach(sel=>{
+                sel.addEventListener('change', async ()=>{
+                    const url   = sel.dataset.endpoint;
+                    const field = sel.dataset.field;
+                    const user_id = sel.value || null;
+
+                    sel.classList.add('saving');
+                    try{
+                        const res = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type':'application/json', 'Accept':'application/json', 'X-CSRF-TOKEN': csrf },
+                            body: JSON.stringify({ field, user_id })
+                        });
+                        if(!res.ok) throw new Error('Save failed');
+
+                        // update sortable dataset when manager changes
+                        if (field === 'manager') {
+                            const row = sel.closest('tr');
+                            const name = sel.options[sel.selectedIndex]?.text || '';
+                            if (row) row.dataset.manager = (name || '').toLowerCase();
+                        }
+
+                        sel.classList.remove('saving');
+                        sel.classList.add('saved');
+                        setTimeout(()=>sel.classList.remove('saved'), 900);
+                    }catch(e){
+                        sel.classList.remove('saving');
+                        alert('Could not save. Please try again.');
+                    }
+                });
+            });
+        })();
     </script>
-  </body>
-</html>
+@endsection

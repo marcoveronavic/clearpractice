@@ -27,14 +27,11 @@ use App\Http\Controllers\CompanyCardController;
 use App\Http\Controllers\CHSearchController;
 use App\Http\Controllers\CompanyImportController;
 use App\Http\Controllers\ClientImportController;
-use App\Http\Controllers\CompanyDocumentsController; // OneDrive per-company actions
-use App\Http\Controllers\OneDriveController;          // OneDrive settings + OAuth
 use App\Http\Controllers\S3DocumentController;        // S3 documents (settings + company)
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 
-use App\Http\Controllers\HmrcController;                 // existing
-use App\Http\Controllers\Auth\PasswordResetController;   // existing
-use Dcblogdev\MsGraph\Facades\MsGraph;                   // for OneDrive listing
+use App\Http\Controllers\HmrcController;               // existing
+use App\Http\Controllers\Auth\PasswordResetController; // existing
 
 /*
 |--------------------------------------------------------------------------
@@ -138,32 +135,12 @@ Route::post('/password/reset', [PasswordResetController::class, 'handleReset'])
 
 /*
 |--------------------------------------------------------------------------
-| OneDrive OAuth + Settings (keep OAuth route public)
+| CH import (global, generic)
 |--------------------------------------------------------------------------
 */
-Route::get('/msgraph/oauth', [OneDriveController::class, 'connect'])
-    ->name('msgraph.oauth');
-
-// 🔎 TEMP DEBUG: shows query string returned by Microsoft (remove after debugging)
-Route::get('/msgraph/debug', function (Request $r) {
-    return response()->json($r->all(), 200, [], JSON_PRETTY_PRINT);
-})->name('msgraph.debug');
-
-Route::middleware(['web','auth'])->group(function () {
-    Route::get('/integrations/onedrive', [OneDriveController::class, 'landing'])
-        ->name('onedrive.landing');
-    Route::post('/integrations/onedrive/create-folder', [OneDriveController::class, 'createFolder'])
-        ->name('onedrive.createFolder');
-    Route::post('/integrations/onedrive/save', [OneDriveController::class, 'save'])
-        ->name('onedrive.save');
-    Route::post('/integrations/onedrive/upload-test', [OneDriveController::class, 'uploadTest'])
-        ->name('onedrive.uploadTest');
-
-    // In-app OneDrive browser + open in OneDrive
-    Route::get('/integrations/onedrive/browse/{encoded?}', [OneDriveController::class, 'browse'])
-        ->name('onedrive.browse');
-    Route::get('/integrations/onedrive/open/{encoded}', [OneDriveController::class, 'openInOneDrive'])
-        ->name('onedrive.open');
+Route::middleware(['auth','verified'])->group(function () {
+    Route::post('/companies/from-ch', [CompanyImportController::class, 'store'])->name('companies.import');
+    Route::post('/clients/from-ch',   [ClientImportController::class,   'store'])->name('clients.import');
 });
 
 /*
@@ -262,19 +239,6 @@ Route::post('/invites/{token}', [InviteController::class, 'accept'])->name('invi
 
 /*
 |--------------------------------------------------------------------------
-| Global CH import endpoints (generic)
-|--------------------------------------------------------------------------
-*/
-Route::middleware(['auth','verified'])->group(function () {
-    Route::post('/companies/from-ch', [CompanyImportController::class, 'store'])
-        ->name('companies.import');
-
-    Route::post('/clients/from-ch', [ClientImportController::class, 'store'])
-        ->name('clients.import');
-});
-
-/*
-|--------------------------------------------------------------------------
 | Workspace routes (practice-scoped)  →  /p/{slug}/...
 |--------------------------------------------------------------------------
 */
@@ -292,12 +256,11 @@ Route::prefix('/p/{practice:slug}')
             return redirect()->route('practice.users.index', $practice->slug);
         })->name('practice.home');
 
-        // CH Search page
+        // CH Search page + proxy
         Route::get('/ch', function (Practice $practice) {
             return view('ch', ['practice' => $practice]);
         })->name('practice.ch.page');
 
-        // CH Search JSON proxy
         Route::get('/ch/search', [CHSearchController::class, 'search'])
             ->name('practice.ch.search');
 
@@ -313,7 +276,6 @@ Route::prefix('/p/{practice:slug}')
             return view('users.index', compact('practice','members','invites'));
         })->name('practice.users.index');
 
-        // Invite user
         Route::post('/users', function (Request $request, Practice $practice) {
             Log::info('Invite POST hit', ['by' => Auth::id(), 'practice' => $practice->id]);
 
@@ -373,7 +335,7 @@ Route::prefix('/p/{practice:slug}')
             return back()->with('status', "User removed from {$practice->name}.");
         })->name('practice.users.destroy');
 
-        // Companies (index)
+        // Companies index → resources/views/companies/index.blade.php
         Route::get('/companies', function (Practice $practice) {
             $user = Auth::user();
 
@@ -381,46 +343,87 @@ Route::prefix('/p/{practice:slug}')
                 ->orderBy('name')
                 ->get() ?? collect();
 
-            return view('companies', [
+            // pass members for dropdowns
+            $members = $practice->members()->orderBy('users.name')->get();
+
+            return view('companies.index', [
                 'companies' => $companies,
                 'practice'  => $practice,
+                'members'   => $members,
             ]);
         })->name('practice.companies.index');
 
         Route::post('/companies', fn () => back()->with('status','Companies store not implemented yet.'))
             ->name('practice.companies.store');
 
-        // Company card (HTML for modal)
+        // Company card (modal)
         Route::get('/company-card/{companyNumber}', [CompanyCardController::class, 'show'])
             ->name('practice.company.card');
 
-        /*
-        |--------------------------------------------------------------------------
-        | Company details page → /p/{practice}/companies/{companyParam}
-        | Resolves by id | company_number | exact name | slug (if column exists)
-        |--------------------------------------------------------------------------
-        */
+        // ---------- Assign users to roles (manager/accountant/...) ----------
+        Route::post('/companies/{companyParam}/assign-user', function (Request $request, Practice $practice, string $companyParam) {
+            $user = Auth::user();
+
+            $company = \App\Models\Company::where(function ($q) use ($companyParam) {
+                $slugGuess = Str::slug($companyParam);
+                $q->when(is_numeric($companyParam), fn ($qq) => $qq->orWhere('id', $companyParam))
+                    ->orWhere('company_number', $companyParam)
+                    ->orWhereRaw('LOWER(name) = ?', [strtolower(str_replace('-', ' ', $companyParam))]);
+                if (Schema::hasColumn('companies', 'slug')) $q->orWhere('slug', $slugGuess);
+            })->firstOrFail();
+
+            if (! $user->companies()->where('companies.id', $company->id)->exists()) {
+                return response()->json(['ok' => false, 'error' => 'Forbidden'], 403);
+            }
+
+            $data = $request->validate([
+                'field'   => ['required','string'],
+                'user_id' => ['nullable','integer','exists:users,id'],
+            ]);
+
+            $map = [
+                'manager'          => 'manager_id',
+                'accountant'       => 'accountant_id',
+                'bookkeeper'       => 'bookkeeper_id',
+                'reviewer'         => 'reviewer_id',
+                'payroll_prepared' => 'payroll_prepared_by_id',
+            ];
+            if (! isset($map[$data['field']])) {
+                return response()->json(['ok' => false, 'error' => 'Invalid field'], 422);
+            }
+
+            // ensure selected user is a member of the practice (if provided)
+            if (! empty($data['user_id'])) {
+                $isMember = $practice->members()->where('users.id', $data['user_id'])->exists();
+                if (! $isMember) return response()->json(['ok'=>false,'error'=>'User not in practice'],422);
+            }
+
+            DB::table('companies')->where('id', $company->id)->update([
+                $map[$data['field']] => $data['user_id'] ?: null,
+                'updated_at'         => now(),
+            ]);
+
+            return response()->json(['ok' => true]);
+        })->name('practice.companies.assignUser');
+
+        // Company details
         Route::get('/companies/{companyParam}', function (Practice $practice, string $companyParam) {
             $user = Auth::user();
 
             $company = \App\Models\Company::where(function ($q) use ($companyParam) {
                 $slugGuess = Str::slug($companyParam);
-
                 $q->when(is_numeric($companyParam), fn ($qq) => $qq->orWhere('id', $companyParam))
                     ->orWhere('company_number', $companyParam)
                     ->orWhereRaw('LOWER(name) = ?', [strtolower(str_replace('-', ' ', $companyParam))]);
-
                 if (Schema::hasColumn('companies', 'slug')) {
                     $q->orWhere('slug', $slugGuess);
                 }
             })->firstOrFail();
 
-            // Ensure the authed user can access this company
             if (! $user->companies()->where('companies.id', $company->id)->exists()) {
                 abort(403, 'You do not have access to this company.');
             }
 
-            // CH profile JSON (if present)
             $profile = [];
             if (!empty($company->raw_profile_json)) {
                 $profile = is_array($company->raw_profile_json)
@@ -428,9 +431,7 @@ Route::prefix('/p/{practice:slug}')
                     : (json_decode($company->raw_profile_json, true) ?: []);
             }
 
-            // Normalised fields for the Blade
-            $company->number = $company->company_number ?? ($profile['company_number'] ?? null);
-
+            $company->number  = $company->company_number ?? ($profile['company_number'] ?? null);
             $createdRaw       = $company->date_of_creation ?? ($profile['date_of_creation'] ?? null);
             $company->created = $createdRaw ? \Carbon\Carbon::parse($createdRaw)->format('d/m/Y') : null;
 
@@ -475,28 +476,21 @@ Route::prefix('/p/{practice:slug}')
                 'overdue'         => $csOverdue,
             ];
 
-            // ---------- OneDrive data for the Documents tab ----------
+            // No OneDrive here; only S3 used in this app flow
             $onedrive = [
-                'connected' => $practice->hasOneDrive(),
+                'connected' => false,
                 'items'     => [],
                 'webUrl'    => null,
-                'folderRel' => $practice->oneDriveBase().'companies/'.
-                    ($company->slug ?: Str::slug($company->name) ?: ('company-'.$company->id)),
+                'folderRel' => '',
             ];
 
-            if ($onedrive['connected']) {
-                try {
-                    $driveId = $practice->onedrive_drive_id;
-                    $item = MsGraph::get("/drives/{$driveId}/root:/{$onedrive['folderRel']}");
-                    $onedrive['webUrl'] = $item['webUrl'] ?? null;
-
-                    $resp = MsGraph::get("/drives/{$driveId}/root:/{$onedrive['folderRel']}:/children");
-                    $onedrive['items'] = $resp['value'] ?? [];
-                } catch (\Throwable $e) {
-                    $onedrive['items'] = [];
-                }
-            }
-            // ---------------------------------------------------------
+            // Optional buckets to keep the view happy (if it expects arrays)
+            $officersActive   = $officersActive   ?? [];
+            $officersResigned = $officersResigned ?? [];
+            $pscsCurrent      = $pscsCurrent      ?? [];
+            $pscsFormer       = $pscsFormer       ?? [];
+            $nextDeadlines    = $nextDeadlines    ?? [];
+            $lateHistory      = $lateHistory      ?? [];
 
             return view('companies.show', [
                 'practice'         => $practice,
@@ -513,44 +507,25 @@ Route::prefix('/p/{practice:slug}')
             ]);
         })->name('practice.companies.show');
 
-        // Companies → Documents (OneDrive actions)
-        Route::post('/companies/{companyParam}/documents/folder', [CompanyDocumentsController::class, 'createFolder'])->name('practice.companies.documents.folder');
-        Route::post('/companies/{companyParam}/documents/upload', [CompanyDocumentsController::class, 'upload'])->name('practice.companies.documents.upload');
-        Route::get('/companies/{companyParam}/documents/dl/{encoded}', [CompanyDocumentsController::class, 'download'])->name('practice.companies.documents.download');
-        Route::delete('/companies/{companyParam}/documents/rm/{encoded}', [CompanyDocumentsController::class, 'delete'])->name('practice.companies.documents.delete');
-
         // ----- S3 SETTINGS (practice-scoped) -----
-        Route::get('/settings/s3', [S3DocumentController::class, 'settings'])
-            ->name('practice.settings.s3');
-        Route::post('/settings/s3', [S3DocumentController::class, 'saveSettings'])
-            ->name('practice.settings.s3.save');
+        Route::get('/settings/s3', [S3DocumentController::class, 'settings'])->name('practice.settings.s3');
+        Route::post('/settings/s3', [S3DocumentController::class, 'saveSettings'])->name('practice.settings.s3.save');
 
         // ----- S3 COMPANY DOCUMENTS -----
-        Route::get('/companies/{companyParam}/documents/s3', [S3DocumentController::class, 'showCompany'])
-            ->name('practice.companies.docs.s3');
+        Route::get('/companies/{companyParam}/documents/s3', [S3DocumentController::class, 'showCompany'])->name('practice.companies.docs.s3');
 
-        Route::post('/companies/{companyParam}/documents/s3/folder', [S3DocumentController::class, 'createFolder'])
-            ->name('practice.companies.docs.s3.folder');
+        // Alias so existing links `route('companies.documents', [$practice, $company])` open S3
+        Route::get('/companies/{companyParam}/documents', [S3DocumentController::class, 'showCompany'])->name('companies.documents');
 
-        Route::post('/companies/{companyParam}/documents/s3/upload', [S3DocumentController::class, 'upload'])
-            ->name('practice.companies.docs.s3.upload');
+        Route::post('/companies/{companyParam}/documents/s3/folder',   [S3DocumentController::class, 'createFolder'])->name('practice.companies.docs.s3.folder');
+        Route::post('/companies/{companyParam}/documents/s3/upload',   [S3DocumentController::class, 'upload'])->name('practice.companies.docs.s3.upload');
+        Route::get ('/companies/{companyParam}/documents/s3/preview/{encoded}', [S3DocumentController::class, 'preview'])->name('practice.companies.docs.s3.preview');
+        Route::get ('/companies/{companyParam}/documents/s3/open/{encoded}',    [S3DocumentController::class, 'open'])->name('practice.companies.docs.s3.open');
+        Route::get ('/companies/{companyParam}/documents/s3/dl/{encoded}',      [S3DocumentController::class, 'download'])->name('practice.companies.docs.s3.download');
+        Route::post('/companies/{companyParam}/documents/s3/share/{encoded}',   [S3DocumentController::class, 'share'])->name('practice.companies.docs.s3.share');
+        Route::delete('/companies/{companyParam}/documents/s3/rm/{encoded}',    [S3DocumentController::class, 'delete'])->name('practice.companies.docs.s3.delete');
 
-        Route::get('/companies/{companyParam}/documents/s3/preview/{encoded}', [S3DocumentController::class, 'preview'])
-            ->name('practice.companies.docs.s3.preview');
-
-        Route::get('/companies/{companyParam}/documents/s3/open/{encoded}', [S3DocumentController::class, 'open'])
-            ->name('practice.companies.docs.s3.open');
-
-        Route::get('/companies/{companyParam}/documents/s3/dl/{encoded}', [S3DocumentController::class, 'download'])
-            ->name('practice.companies.docs.s3.download');
-
-        Route::post('/companies/{companyParam}/documents/s3/share/{encoded}', [S3DocumentController::class, 'share'])
-            ->name('practice.companies.docs.s3.share');
-
-        Route::delete('/companies/{companyParam}/documents/s3/rm/{encoded}', [S3DocumentController::class, 'delete'])
-            ->name('practice.companies.docs.s3.delete');
-
-        // Clients — loads real data (via client_user pivot)
+        // Clients
         Route::get('/clients', function (Practice $practice) {
             $user = Auth::user();
 
@@ -582,7 +557,6 @@ Route::prefix('/p/{practice:slug}')
         Route::post('/clients', fn () => back()->with('status','Clients store not implemented yet.'))
             ->name('practice.clients.store');
 
-        // Add director to clients (AJAX)
         Route::post('/clients/from-ch', [ClientImportController::class, 'store'])
             ->name('practice.clients.import');
 

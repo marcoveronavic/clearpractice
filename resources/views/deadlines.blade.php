@@ -3,6 +3,14 @@
 @section('title', 'Deadlines')
 
 @section('content')
+    {{-- Due pill styles (scoped to this page so it always works) --}}
+    <style>
+        .due-pill{display:inline-block;padding:3px 10px;border-radius:9999px;font-size:13px;line-height:1.35;font-weight:600;border:1px solid}
+        .due-late   {background:#fee2e2;color:#991b1b;border-color:#fecaca}
+        .due-60     {background:#ffcc80;color:#7c2d12;border-color:#ffb74d}
+        .due-neutral{background:#eef2f7;color:#334155;border-color:#cbd5e1}
+    </style>
+
     <div class="card" style="margin-bottom:14px">
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
             <form method="POST" action="{{ route('practice.deadlines.refreshAll', $practice->slug) }}">
@@ -45,6 +53,21 @@
             return $label;
         };
 
+        // NEW: resolve the CSS class for the due pill
+        $dueClass = function (?string $dueOn) {
+            if (!$dueOn) return 'due-neutral';
+            try {
+                $due   = \Carbon\Carbon::parse($dueOn)->startOfDay();
+                $today = now()->startOfDay();
+                $diff  = $today->diffInDays($due, false); // negative if late
+                if ($diff < 0)  return 'due-late';
+                if ($diff <= 60) return 'due-60';
+                return 'due-neutral';
+            } catch (\Throwable $e) {
+                return 'due-neutral';
+            }
+        };
+
         // Use buckets prepared in the route; if missing, derive from $deadlines.
         $accountsList = collect($accounts ?? []);
         $confirmList  = collect($confirmations ?? []);
@@ -72,12 +95,14 @@
                 @php
                     $title   = $d->title ?? ('Accounts — '.($d->company_name ?? ''));
                     $yearEnd = $d->year_end ?? $fmtDate($d->period_end_on ?? null);
-                    $due     = $d->display_due ?? $d->due ?? $fmtDue($d->due_on ?? null);
+                    $dueRaw  = $d->due_on ?? null;
+                    $dueLbl  = $d->display_due ?? $d->due ?? $fmtDue($dueRaw);
+                    $dueCls  = $dueClass($dueRaw);
                 @endphp
                 <tr>
                     <td>{{ $title }}</td>
                     <td>{{ $yearEnd }}</td>
-                    <td>{{ $due }}</td>
+                    <td><span class="due-pill {{ $dueCls }}">{{ $dueLbl }}</span></td>
                     <td>
                         <form method="POST" action="{{ route('practice.deadlines.destroy', ['practice' => $practice->slug, 'id' => $d->id]) }}">
                             @csrf @method('DELETE')
@@ -109,12 +134,14 @@
                 @php
                     $title   = $d->title ?? ('Confirmation statement — '.($d->company_name ?? ''));
                     $yearEnd = $d->year_end ?? $fmtDate($d->period_end_on ?? null);
-                    $due     = $d->display_due ?? $d->due ?? $fmtDue($d->due_on ?? null);
+                    $dueRaw  = $d->due_on ?? null;
+                    $dueLbl  = $d->display_due ?? $d->due ?? $fmtDue($dueRaw);
+                    $dueCls  = $dueClass($dueRaw);
                 @endphp
                 <tr>
                     <td>{{ $title }}</td>
                     <td>{{ $yearEnd }}</td>
-                    <td>{{ $due }}</td>
+                    <td><span class="due-pill {{ $dueCls }}">{{ $dueLbl }}</span></td>
                     <td>
                         <form method="POST" action="{{ route('practice.deadlines.destroy', ['practice' => $practice->slug, 'id' => $d->id]) }}">
                             @csrf @method('DELETE')
