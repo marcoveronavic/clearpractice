@@ -1,3 +1,4 @@
+{{-- resources/views/companies/show.blade.php --}}
 @extends('layouts.app')
 
 @section('title', $company->name ?? $company->number)
@@ -71,6 +72,9 @@
 @endsection
 
 @section('content')
+    {{-- DEBUG marker to ensure this file is the one rendering --}}
+    <script>console.log('companies/show.blade DETACH=RAW-URL v1');</script>
+
     <div class="page-wrap">
         <div class="page-inner">
 
@@ -83,6 +87,18 @@
                         Open on Companies House ↗
                     </a>
                 @endif
+
+                {{-- IMPORTANT: raw URL (no route() call) --}}
+                <form method="POST"
+                      action="{{ url('/p/'.$practice->slug.'/companies/'.$company->id.'/detach') }}"
+                      onsubmit="return confirm('Remove this company from your practice?');"
+                      style="margin-left:auto">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="btn" style="border-color:#ef4444;color:#b91c1c">
+                        Remove from practice
+                    </button>
+                </form>
             </div>
 
             <div class="title">{{ $company->name ?? '—' }}</div>

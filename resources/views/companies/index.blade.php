@@ -1,9 +1,13 @@
+{{-- resources/views/companies/index.blade.php --}}
 @extends('layouts.app')
 
 @section('content')
     <style>
-        .cp-card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; }
-        .cp-table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; min-width:1400px; }
+        /* Layout + table visuals */
+        .cp-card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; width:100%; }
+        .cp-table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; table-layout:auto; }
+        /* was min-width:1400px; removed so it can expand/contract with the viewport */
+
         .cp-table thead th {
             position: sticky; top: 0; z-index: 2;
             background:#f7f7f8; color:#111827; font-weight:600;
@@ -11,6 +15,7 @@
         }
         .cp-table tbody td { border-bottom:1px solid #f1f5f9; padding:10px 12px; vertical-align:middle; }
         .cp-table tbody tr:hover { background:#fafafa; }
+
         .cp-badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#3730a3; font-size:12px; }
         .cp-link { color:#2563eb; text-decoration:underline; }
         .cp-muted { color:#6b7280; }
@@ -30,6 +35,8 @@
 
         .cp-btn { appearance:none; border:1px solid #e5e7eb; background:#fff; padding:8px 12px; border-radius:8px; cursor:pointer; font-size:14px; color:#111827; }
         .cp-btn:hover { background:#f9fafb; }
+        .cp-btn.small { padding:6px 10px; font-size:13px; }
+        .cp-btn.danger { border-color:#ef4444; color:#b91c1c; }
 
         body.cp-modal-open { overflow: hidden; }
         .cp-modal-backdrop { position:fixed; inset:0; background:rgba(17,24,39,.45); display:none; align-items:center; justify-content:center; z-index:9998; }
@@ -53,12 +60,16 @@
         .cp-select { min-width:180px; padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; font-size:14px; }
         .cp-select.saving { opacity:0.6; }
         .cp-select.saved { outline:2px solid #22c55e; transition: outline-color .8s ease; }
+
+        /* Widen the page on desktop */
+        @media (min-width: 1024px){
+            .container { max-width: none !important; width: 100% !important; }
+        }
     </style>
 
     @php
         $prefKey = 'cp:companies:cols:' . ($practice->id ?? $practice->slug ?? 'default');
 
-        // Members for dropdowns (use $members if route passed it; otherwise fetch here)
         $membersList = isset($members)
             ? $members
             : ($practice->members()->orderBy('users.name')->get());
@@ -82,7 +93,8 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <div class="container" style="max-width:1200px;">
+    {{-- full-width container (previously capped at 1200px) --}}
+    <div class="container" style="max-width:none;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
             <div>
                 <h1 class="cp-heading">Companies</h1>
@@ -100,7 +112,6 @@
                 <table class="cp-table" id="companies-table" data-pref-key="{{ $prefKey }}">
                     <thead>
                     <tr>
-                        {{-- Core --}}
                         <th class="cp-sort" data-key="company" data-col="client"><span>Client</span><span class="arrow"></span></th>
                         <th class="cp-sort" data-key="contact" data-col="full_name"><span>Full Name</span><span class="arrow"></span></th>
                         <th class="cp-sort" data-key="type" data-col="client_type"><span>Client Type</span><span class="arrow"></span></th>
@@ -109,7 +120,6 @@
                         <th class="cp-sort" data-key="manager" data-col="manager"><span>Manager</span><span class="arrow"></span></th>
                         <th data-col="links"><span>Client Links</span></th>
                         <th class="cp-sort cp-right" data-key="aml" data-col="aml"><span>Money Laundering Complete</span><span class="arrow"></span></th>
-                        {{-- Extra (toggleable) --}}
                         <th data-col="status"><span>Company Status</span></th>
                         <th data-col="incorporation_date"><span>Incorporation Date</span></th>
                         <th data-col="trading_as"><span>Company Trading As</span></th>
@@ -147,7 +157,6 @@
                             $partner    = $company->partner_name ?? ($company->partner->name ?? null);
                             $aml        = $company->aml_complete ?? $company->kyc_complete ?? false;
 
-                            // Current assignee IDs (fallback to relations if set)
                             $managerId    = $company->manager_id    ?? ($company->manager->id ?? null);
                             $accountantId = $company->accountant_id ?? ($company->accountant->id ?? null);
                             $bookkeeperId = $company->bookkeeper_id ?? ($company->bookkeeper->id ?? null);
@@ -156,7 +165,6 @@
 
                             $vatNumber = $company->vat_number ?? $company->vat_no ?? $company->vat ?? null;
 
-                            // More fields (shown via toggles)
                             $status     = $company->company_status ?? $company->status ?? null;
                             $incDateRaw = $company->incorporation_date ?? $company->date_of_creation ?? $company->created_at ?? null;
                             $incorporationDate = $incDateRaw ? \Carbon\Carbon::parse($incDateRaw)->format('d/m/Y') : null;
@@ -185,7 +193,7 @@
                             $tradingAddress    = $fmtAddr($company->trading_address ?? null);
 
                             $companyEmail = $company->company_email ?? $company->email ?? null;
-                            $emailDomain  = $company->email_domain ?? ( ($companyEmail && str_contains($companyEmail,'@')) ? substr(strrchr($companyEmail,'@'),1) : null );
+                            $emailDomain  = $companyEmail && str_contains($companyEmail,'@') ? substr(strrchr($companyEmail,'@'),1) : ($company->email_domain ?? null);
                             $telephone   = $company->telephone ?? $company->phone ?? $company->phone_number ?? null;
                             $turnoverVal = $company->turnover ?? $company->company_turnover ?? null;
                             $turnoverCur = $company->turnover_currency ?? $company->currency ?? null;
@@ -212,7 +220,6 @@
                             data-manager="{{ \Illuminate\Support\Str::lower(optional($membersList->firstWhere('id',$managerId))->name ?? '') }}"
                             data-aml="{{ $aml ? '1' : '0' }}"
                         >
-                            {{-- Core --}}
                             <td class="cp-nowrap" data-col="client">
                                 <a href="{{ $showHref }}" class="cp-link">{{ $name }}</a>
                                 @if($number)<div class="cp-subtle">No. {{ $number }}</div>@endif
@@ -222,7 +229,6 @@
                             <td data-col="partner">{{ $partner ?? '—' }}</td>
                             <td data-col="services">{{ $services ?? '—' }}</td>
 
-                            {{-- Manager (SELECT DROPDOWN) --}}
                             <td data-col="manager">
                                 <select class="cp-select cp-user-select"
                                         data-field="manager"
@@ -236,7 +242,7 @@
                                 </select>
                             </td>
 
-                            {{-- Links --}}
+                            {{-- Links + Remove (inline) --}}
                             <td class="cp-nowrap cp-actions" data-col="links">
                                 @if($chHref)<a href="{{ $chHref }}" target="_blank" class="cp-link">Companies House</a>@endif
                                 @if(\Illuminate\Support\Facades\Route::has('companies.documents'))
@@ -244,6 +250,15 @@
                                 @elseif(\Illuminate\Support\Facades\Route::has('practice.companies.docs.s3'))
                                     <a href="{{ route('practice.companies.docs.s3', [$practice, $company->slug ?? $company->id]) }}" class="cp-link">Documents</a>
                                 @endif
+
+                                <form method="POST"
+                                      action="{{ url('/p/'.$practice->slug.'/companies/'.$company->id.'/detach') }}"
+                                      onsubmit="return confirm('Remove this company from your practice?');"
+                                      style="display:inline-block">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-danger">Detach</button>
+                                </form>
                             </td>
 
                             <td class="cp-right" data-col="aml">@if($aml)<span class="cp-badge">Yes</span>@else<span class="cp-muted">No</span>@endif</td>
@@ -462,7 +477,6 @@
                         });
                         if(!res.ok) throw new Error('Save failed');
 
-                        // update sortable dataset when manager changes
                         if (field === 'manager') {
                             const row = sel.closest('tr');
                             const name = sel.options[sel.selectedIndex]?.text || '';

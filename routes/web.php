@@ -27,11 +27,11 @@ use App\Http\Controllers\CompanyCardController;
 use App\Http\Controllers\CHSearchController;
 use App\Http\Controllers\CompanyImportController;
 use App\Http\Controllers\ClientImportController;
-use App\Http\Controllers\S3DocumentController;        // S3 documents (settings + company)
+use App\Http\Controllers\S3DocumentController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 
-use App\Http\Controllers\HmrcController;               // existing
-use App\Http\Controllers\Auth\PasswordResetController; // existing
+use App\Http\Controllers\HmrcController;
+use App\Http\Controllers\Auth\PasswordResetController;
 
 /*
 |--------------------------------------------------------------------------
@@ -335,7 +335,7 @@ Route::prefix('/p/{practice:slug}')
             return back()->with('status', "User removed from {$practice->name}.");
         })->name('practice.users.destroy');
 
-        // Companies index → resources/views/companies/index.blade.php
+        // Companies index
         Route::get('/companies', function (Practice $practice) {
             $user = Auth::user();
 
@@ -360,7 +360,7 @@ Route::prefix('/p/{practice:slug}')
         Route::get('/company-card/{companyNumber}', [CompanyCardController::class, 'show'])
             ->name('practice.company.card');
 
-        // ---------- Assign users to roles (manager/accountant/...) ----------
+        // Assign users to roles
         Route::post('/companies/{companyParam}/assign-user', function (Request $request, Practice $practice, string $companyParam) {
             $user = Auth::user();
 
@@ -392,7 +392,6 @@ Route::prefix('/p/{practice:slug}')
                 return response()->json(['ok' => false, 'error' => 'Invalid field'], 422);
             }
 
-            // ensure selected user is a member of the practice (if provided)
             if (! empty($data['user_id'])) {
                 $isMember = $practice->members()->where('users.id', $data['user_id'])->exists();
                 if (! $isMember) return response()->json(['ok'=>false,'error'=>'User not in practice'],422);
@@ -476,7 +475,6 @@ Route::prefix('/p/{practice:slug}')
                 'overdue'         => $csOverdue,
             ];
 
-            // No OneDrive here; only S3 used in this app flow
             $onedrive = [
                 'connected' => false,
                 'items'     => [],
@@ -484,7 +482,6 @@ Route::prefix('/p/{practice:slug}')
                 'folderRel' => '',
             ];
 
-            // Optional buckets to keep the view happy (if it expects arrays)
             $officersActive   = $officersActive   ?? [];
             $officersResigned = $officersResigned ?? [];
             $pscsCurrent      = $pscsCurrent      ?? [];
@@ -698,6 +695,27 @@ Route::prefix('/p/{practice:slug}')
         // HMRC VAT routes
         Route::get('/companies/{company}/hmrc/connect', [HmrcController::class, 'connectForCompany'])->name('practice.hmrc.connect');
         Route::get('/companies/{company}/hmrc/obligations', [HmrcController::class, 'obligationsForCompany'])->name('practice.hmrc.obligations');
+
+        /*
+        |--------------------------------------------------------------------------
+        | DETACH — always redirect to the companies list (no 403 on show)
+        |--------------------------------------------------------------------------
+        */
+        Route::match(['DELETE','POST'], '/companies/{company}/detach', function (Practice $practice, \App\Models\Company $company) {
+            $user = Auth::user();
+
+            if (! $user || ! $user->companies()->where('companies.id', $company->id)->exists()) {
+                // force GET to the list
+                return redirect("/p/{$practice->slug}/companies", 303)
+                    ->withErrors(['You do not have this company in your practice.']);
+            }
+
+            $user->companies()->detach($company->id);
+
+            // force GET to the list
+            return redirect("/p/{$practice->slug}/companies", 303)
+                ->with('status', 'Company removed from your practice.');
+        })->name('practice.companies.detach');
     });
 
 /*
