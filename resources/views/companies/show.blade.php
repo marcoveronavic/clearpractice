@@ -89,6 +89,14 @@
         .note{font-size:12px;color:#6b7280;margin:6px 16px 0 0}
         .note.ok{color:var(--green);font-weight:600}
         .note.err{color:#b91c1c;font-weight:600}
+
+        /* ===== Deadline pills (same palette as deadlines page) ===== */
+        .pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;
+            border:1px solid #e5e7eb;background:#f3f4f6;color:#111;white-space:nowrap}
+        .pill-late{background:#fee2e2;border-color:#fecaca;color:#991b1b}
+        .pill-soon{background:#ffedd5;border-color:#fed7aa;color:#9a3412}
+        .pill-future{background:#eff6ff;border-color:#bfdbfe;color:#1e3a8a}
+        .pill-today{background:#fde68a;border-color:#fcd34d;color:#92400e}
     </style>
 @endsection
 
@@ -261,7 +269,7 @@
                 </div>
             </section>
 
-            {{-- DEADLINES (unchanged) --}}
+            {{-- DEADLINES (NOW color-coded like /deadlines) --}}
             <section id="tab-deadlines" class="tab-panel" hidden aria-labelledby="tabbtn-deadlines">
                 @php
                     $fmt = fn($d) => $d ? \Carbon\Carbon::parse($d)->format('d/m/Y') : '—';
@@ -269,6 +277,7 @@
                         ? 'Accounts'
                         : ($t === 'confirmation_statement' ? 'Confirmation statement' : ucwords(str_replace('_',' ',$t)));
 
+                    // Pick one next deadline per type for this company
                     $next = collect($nextDeadlines ?? []);
                     if ($next->isEmpty()) {
                         $rows = \App\Models\Deadline::where('company_id', $company->id)
@@ -288,6 +297,34 @@
                         }
                         $next = collect(array_values($bucket));
                     }
+
+                    // Build colored pill like deadlines page
+                    $duePill = function (?string $dateStr): string {
+                        if (!$dateStr) return '<span class="pill">—</span>';
+                        try {
+                            if (str_contains($dateStr, '/')) {
+                                $due = \Carbon\Carbon::createFromFormat('d/m/Y', $dateStr)->startOfDay();
+                            } else {
+                                $due = \Carbon\Carbon::parse($dateStr)->startOfDay();
+                            }
+                        } catch (\Throwable $e) {
+                            return '<span class="pill">'.e($dateStr).'</span>';
+                        }
+                        $today = now()->startOfDay();
+                        $diff  = $today->diffInDays($due, false);
+                        $label = $due->format('d/m/Y');
+                        if ($diff > 0) {
+                            $label .= ' (in '.$diff.' days)';
+                            $class = $diff <= 30 ? 'pill pill-soon' : 'pill pill-future';
+                        } elseif ($diff === 0) {
+                            $label .= ' (today)';
+                            $class = 'pill pill-today';
+                        } else {
+                            $label .= ' ('.abs($diff).' days late)';
+                            $class = 'pill pill-late';
+                        }
+                        return '<span class="'.$class.'">'.$label.'</span>';
+                    };
                 @endphp
 
                 <div class="card">
@@ -303,7 +340,7 @@
                                     <tr>
                                         <td>{{ $pretty($d->type) }}</td>
                                         <td>{{ $fmt($d->period_end_on) }}</td>
-                                        <td>{{ $fmt($d->due_on) }}</td>
+                                        <td>{!! $duePill($d->due_on) !!}</td>
                                         <td>{{ $d->status ?? 'upcoming' }}</td>
                                     </tr>
                                 @endforeach
