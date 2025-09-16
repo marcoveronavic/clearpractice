@@ -7,7 +7,7 @@
     <style>
         :root{
             --fg:#111827; --muted:#6b7280; --line:#e5e7eb; --bg:#f9fafb; --card:#ffffff;
-            --blue:#2563eb; --blue-100:#dbeafe;
+            --blue:#2563eb; --blue-100:#dbeafe; --red:#ef4444; --green:#16a34a;
         }
 
         /* Layout */
@@ -68,12 +68,43 @@
         .table th,.table td{padding:10px 12px;border-top:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}
         .table th{font-size:12px;color:#6b7280;font-weight:700;text-transform:uppercase;letter-spacing:.02em}
         .table td{white-space:normal}
+
+        /* ===== Assign popup (centered) ===== */
+        .assign-backdrop{
+            position:fixed; inset:0; background:rgba(17,24,39,.45);
+            display:none; z-index:9998; align-items:center; justify-content:center;
+        }
+        .assign-backdrop.is-open{ display:flex; }
+        .assign-modal{
+            width:560px; max-width:95vw; background:#fff; border:1px solid var(--line);
+            border-radius:12px; box-shadow:0 18px 48px rgba(0,0,0,.22);
+        }
+        .assign-modal header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+        .assign-modal header h3{margin:0;font-size:16px;font-weight:700}
+        .assign-modal .body{padding:14px 16px;max-height:70vh;overflow:auto}
+        .assign-modal .row{display:grid;grid-template-columns:160px 1fr;gap:10px;padding:8px 16px 8px 0}
+        .assign-modal .label{color:#6b7280}
+        .assign-modal footer{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line)}
+        .select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+        .note{font-size:12px;color:#6b7280;margin:6px 16px 0 0}
+        .note.ok{color:var(--green);font-weight:600}
+        .note.err{color:#b91c1c;font-weight:600}
     </style>
 @endsection
 
 @section('content')
-    {{-- DEBUG marker to ensure this file is the one rendering --}}
-    <script>console.log('companies/show.blade DETACH=RAW-URL v1');</script>
+    @php
+        $membersList = $practice->members()->orderBy('users.name')->get();
+        $sel = [
+            'manager'           => $company->manager_id ?? null,
+            'accountant'        => $company->accountant_id ?? null,
+            'bookkeeper'        => $company->bookkeeper_id ?? null,
+            'payroll_prepared'  => $company->payroll_prepared_by_id ?? null,
+            'reviewer'          => $company->reviewer_id ?? null,
+        ];
+        $assignUrl = route('practice.companies.assignUser', [$practice, $company->slug ?? $company->id]);
+    @endphp
+    <meta name="csrf-token" content="{{ csrf_token() }}">
 
     <div class="page-wrap">
         <div class="page-inner">
@@ -88,7 +119,10 @@
                     </a>
                 @endif
 
-                {{-- IMPORTANT: raw URL (no route() call) --}}
+                {{-- Assign to users (popup) --}}
+                <button id="btn-assign" type="button" class="btn">Assign to users</button>
+
+                {{-- Remove from practice (unchanged) --}}
                 <form method="POST"
                       action="{{ url('/p/'.$practice->slug.'/companies/'.$company->id.'/detach') }}"
                       onsubmit="return confirm('Remove this company from your practice?');"
@@ -120,7 +154,7 @@
                 <button id="tabbtn-bills"      class="tab-link"         data-tab="bills"      type="button">Bills</button>
             </div>
 
-            {{-- DASHBOARD --}}
+            {{-- DASHBOARD (unchanged) --}}
             @php
                 $dash = $dashboard ?? [];
                 $wipAmount   = $dash['wip_amount']   ?? '£0.00';
@@ -204,7 +238,7 @@
                 </div>
             </section>
 
-            {{-- DETAILS --}}
+            {{-- DETAILS (unchanged) --}}
             <section id="tab-details" class="tab-panel" hidden aria-labelledby="tabbtn-details">
                 <div class="card">
                     <div style="display:flex;align-items:center;gap:12px;margin:0 0 12px">
@@ -227,7 +261,7 @@
                 </div>
             </section>
 
-            {{-- DEADLINES --}}
+            {{-- DEADLINES (unchanged) --}}
             <section id="tab-deadlines" class="tab-panel" hidden aria-labelledby="tabbtn-deadlines">
                 @php
                     $fmt = fn($d) => $d ? \Carbon\Carbon::parse($d)->format('d/m/Y') : '—';
@@ -318,8 +352,62 @@
         </div>
     </div>
 
+    {{-- POPUP (only place where Assign UI exists) --}}
+    <div id="assign-backdrop" class="assign-backdrop" aria-hidden="true">
+        <div class="assign-modal" role="dialog" aria-modal="true" aria-labelledby="assign-title">
+            <header>
+                <h3 id="assign-title">Assign users</h3>
+                <button id="assign-close" type="button" class="btn" style="border:none;background:transparent;color:#6b7280;font-size:18px" aria-label="Close">×</button>
+            </header>
+            <div class="body">
+                <div class="row"><div class="label">Manager</div><div>
+                        <select id="sel-manager" class="select">
+                            <option value="">—</option>
+                            @foreach($membersList as $m)
+                                <option value="{{ $m->id }}" {{ (string)$sel['manager'] === (string)$m->id ? 'selected' : '' }}>{{ $m->name }}</option>
+                            @endforeach
+                        </select></div></div>
+
+                <div class="row"><div class="label">Accountant</div><div>
+                        <select id="sel-accountant" class="select">
+                            <option value="">—</option>
+                            @foreach($membersList as $m)
+                                <option value="{{ $m->id }}" {{ (string)$sel['accountant'] === (string)$m->id ? 'selected' : '' }}>{{ $m->name }}</option>
+                            @endforeach
+                        </select></div></div>
+
+                <div class="row"><div class="label">Bookkeeper</div><div>
+                        <select id="sel-bookkeeper" class="select">
+                            @foreach($membersList as $m)
+                                <option value="{{ $m->id }}" {{ (string)$sel['bookkeeper'] === (string)$m->id ? 'selected' : '' }}>{{ $m->name }}</option>
+                            @endforeach
+                        </select></div></div>
+
+                <div class="row"><div class="label">Payroll preparer</div><div>
+                        <select id="sel-payroll" class="select">
+                            @foreach($membersList as $m)
+                                <option value="{{ $m->id }}" {{ (string)$sel['payroll_prepared'] === (string)$m->id ? 'selected' : '' }}>{{ $m->name }}</option>
+                            @endforeach
+                        </select></div></div>
+
+                <div class="row"><div class="label">Reviewer</div><div>
+                        <select id="sel-reviewer" class="select">
+                            @foreach($membersList as $m)
+                                <option value="{{ $m->id }}" {{ (string)$sel['reviewer'] === (string)$m->id ? 'selected' : '' }}>{{ $m->name }}</option>
+                            @endforeach
+                        </select></div></div>
+
+                <p id="assign-note" class="note"></p>
+            </div>
+            <footer>
+                <button id="assign-cancel" type="button" class="btn">Cancel</button>
+                <button id="assign-save"   type="button" class="btn primary">Save</button>
+            </footer>
+        </div>
+    </div>
+
     <script>
-        // Tab toggling
+        // Tabs (unchanged)
         document.addEventListener('click', (e) => {
             const btn = e.target.closest('.tab-link');
             if (!btn) return;
@@ -339,5 +427,88 @@
                 panel.removeAttribute('hidden');
             }
         }, { passive:true });
+
+        // Popup open/close and save
+        (function(){
+            const openBtn   = document.getElementById('btn-assign');
+            const bd        = document.getElementById('assign-backdrop');
+            const closeBtn  = document.getElementById('assign-close');
+            const cancelBtn = document.getElementById('assign-cancel');
+            const saveBtn   = document.getElementById('assign-save');
+            const noteEl    = document.getElementById('assign-note');
+            const CSRF      = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            const URL       = @json($assignUrl);
+
+            function open(){ bd.classList.add('is-open'); }
+            function close(){ bd.classList.remove('is-open'); noteEl.textContent=''; noteEl.className='note'; }
+
+            openBtn && openBtn.addEventListener('click', open);
+            closeBtn && closeBtn.addEventListener('click', close);
+            cancelBtn && cancelBtn.addEventListener('click', close);
+            bd && bd.addEventListener('click', (e)=>{ if(e.target===bd) close(); });
+
+            async function assign(field, user_id){
+                const res = await fetch(URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN': CSRF },
+                    body: JSON.stringify({ field, user_id })
+                });
+                if(!res.ok) throw new Error(field+': '+res.status);
+            }
+
+            async function saveAll(){
+                saveBtn.disabled = true;
+                noteEl.textContent = 'Saving…'; noteEl.className = 'note';
+                try{
+                    await assign('manager',          document.getElementById('sel-manager').value || null);
+                    await assign('accountant',       document.getElementById('sel-accountant').value || null);
+                    await assign('bookkeeper',       document.getElementById('sel-bookkeeper').value || null);
+                    await assign('payroll_prepared', document.getElementById('sel-payroll').value || null);
+                    await assign('reviewer',         document.getElementById('sel-reviewer').value || null);
+
+                    noteEl.textContent = 'Saved.'; noteEl.className = 'note ok';
+                    setTimeout(close, 700);
+                }catch(err){
+                    noteEl.textContent = 'Could not save: ' + (err?.message || err);
+                    noteEl.className = 'note err';
+                }finally{
+                    saveBtn.disabled = false;
+                }
+            }
+            saveBtn && saveBtn.addEventListener('click', saveAll);
+        })();
+
+        // === Robust removal of the bottom inline "Assign users" block (NOT the popup) ===
+        (function removeInlineAssign(){
+            function hide() {
+                // find any element whose visible text contains "assign users" (outside the popup)
+                const nodes = Array.from(document.querySelectorAll('body *'))
+                    .filter(el => !el.closest('#assign-backdrop'))
+                    .filter(el => {
+                        const t = (el.textContent || '').trim().toLowerCase();
+                        return t === 'assign users' || t.startsWith('assign users');
+                    });
+
+                nodes.forEach(h => {
+                    // climb to the nearest ancestor that actually wraps the selects (>=3)
+                    let box = h;
+                    let guard = 0;
+                    while (box && box !== document.body && guard < 12) {
+                        const selCount = box.querySelectorAll('select').length;
+                        if (selCount >= 3) break;
+                        box = box.parentElement; guard++;
+                    }
+                    if (box && box !== document.body) {
+                        box.style.display = 'none';
+                    }
+                });
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', hide, { once:true });
+            } else {
+                hide();
+            }
+            new MutationObserver(hide).observe(document.body, { childList:true, subtree:true });
+        })();
     </script>
 @endsection

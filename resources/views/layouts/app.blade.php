@@ -35,6 +35,7 @@
         .user-name { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .user-email { font-size:12px; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     </style>
+    @yield('head')
 </head>
 <body>
 <header>
@@ -54,7 +55,7 @@
 <div class="wrap">
     <aside class="sidebar">
         @isset($practice)
-            {{-- Practice‑scoped nav --}}
+            {{-- Practice-scoped nav --}}
             <a href="{{ route('practice.ch.page', $practice->slug) }}" class="{{ request()->routeIs('practice.ch.page') ? 'active' : '' }}">CH Search</a>
             <a href="{{ route('practice.companies.index', $practice->slug) }}" class="{{ request()->routeIs('practice.companies.*') ? 'active' : '' }}">Companies</a>
             <a href="{{ route('practice.clients.index', $practice->slug) }}" class="{{ request()->routeIs('practice.clients.*') ? 'active' : '' }}">Clients</a>
@@ -94,9 +95,7 @@
 </div>
 
 {{-- ******************************************************************
-   Only addition: robust script that injects the two buttons.
-   - Scopes strictly to the open modal (centered, wide container)
-   - Places "Add to my companies" right after the title (or before "No:" as fallback)
+   Optional helper script (existing app code). Keep as-is.
 ******************************************************************* --}}
 <script>
     (function () {
