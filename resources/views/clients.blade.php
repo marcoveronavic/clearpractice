@@ -1,73 +1,71 @@
 @extends('layouts.app')
-
 @section('title', 'Clients')
 
-@section('head')
-    <style>
-        table { border-collapse: collapse; width: 100%; }
-        th, td { padding: 8px; border: 1px solid #e5e7eb; text-align: left; }
-        .actions form { display: inline; }
-    </style>
-@endsection
-
 @section('content')
-    <h1>Clients</h1>
+    <div class="page">
+        <h1 style="margin:10px 0 12px">Clients</h1>
 
-    @if (session('status'))
-        <div class="flash ok">{{ session('status') }}</div>
-    @endif
-    @if ($errors->any())
-        <div class="flash err">@foreach ($errors->all() as $e) {{ $e }}<br>@endforeach</div>
-    @endif
-
-    @php
-        // $practice is shared by EnsurePracticeAccess; fall back to route param if needed
-        $ws   = $practice ?? request()->route('practice');
-        $slug = $ws instanceof \App\Models\Practice ? $ws->slug : $ws;
-    @endphp
-
-    {{-- Simple stub form (server route currently returns “not implemented yet”) --}}
-    <form method="POST"
-          action="{{ route('practice.clients.store', ['practice' => $slug]) }}"
-          class="card"
-          style="max-width:720px;margin-bottom:16px">
-        @csrf
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:end">
-            <div>
-                <label class="muted">Client name</label>
-                <input type="text" name="name" placeholder="e.g. Jane Smith">
-            </div>
-            <div>
-                <label class="muted">Email</label>
-                <input type="email" name="email" placeholder="jane@example.com">
-            </div>
-            <div style="grid-column:1 / span 2">
-                <button class="btn primary" type="submit">Add client</button>
-            </div>
+        {{-- Add client --}}
+        <div class="card" style="margin-bottom:14px">
+            <form method="POST"
+                  action="{{ route('practice.clients.store', $practice->slug) }}"
+                  style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+                @csrf
+                <div>
+                    <label class="muted" style="display:block; font-size:12px; margin-bottom:4px">Client name</label>
+                    <input type="text" name="name" placeholder="e.g. Jane Smith" value="{{ old('name') }}"
+                           style="padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; width:220px">
+                </div>
+                <div>
+                    <label class="muted" style="display:block; font-size:12px; margin-bottom:4px">Email</label>
+                    <input type="email" name="email" placeholder="jane@example.com" value="{{ old('email') }}"
+                           style="padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; width:220px">
+                </div>
+                <div style="align-self:flex-end; padding-bottom:2px">
+                    <button class="btn" type="submit">Add client</button>
+                </div>
+            </form>
         </div>
-    </form>
 
-    <div class="card">
-        @if(!empty($clients) && count($clients))
-            <table>
+        {{-- List --}}
+        <div class="card">
+            <table class="table">
                 <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>Email</th>
+                    <th style="text-align:left; padding:10px">Name</th>
+                    <th style="text-align:left; padding:10px; width:30%">Email</th>
+                    <th style="text-align:right; padding:10px; width:1%">Actions</th>
                 </tr>
                 </thead>
                 <tbody>
-                @foreach ($clients as $client)
+                @forelse($clients as $client)
                     <tr>
-                        <td>{{ $client->name ?? '-' }}</td>
-                        <td>{{ $client->email ?? '-' }}</td>
+                        <td style="padding:10px; border-top:1px solid #e5e7eb;">
+                            {{ $client->name ?? $client->company_name ?? $client->display ?? ('Client #'.$client->id) }}
+                        </td>
+                        <td style="padding:10px; border-top:1px solid #e5e7eb;">
+                            {{ $client->email ?? '-' }}
+                        </td>
+                        <td style="padding:10px; border-top:1px solid #e5e7eb; text-align:right; white-space:nowrap;">
+                            <form method="POST"
+                                  action="{{ route('practice.clients.destroy', [$practice->slug, $client->id]) }}"
+                                  onsubmit="return confirm('Remove this client from the practice?');"
+                                  style="display:inline">
+                                @csrf
+                                @method('DELETE')
+                                <button class="btn" type="submit"
+                                        title="Remove from this practice"
+                                        style="border-color:#fecaca; color:#991b1b; background:#fff;">
+                                    Remove
+                                </button>
+                            </form>
+                        </td>
                     </tr>
-                @endforeach
+                @empty
+                    <tr><td colspan="3" style="padding:14px; text-align:center; color:#6b7280">No clients yet.</td></tr>
+                @endforelse
                 </tbody>
             </table>
-        @else
-            <p class="muted">No clients yet.</p>
-        @endif
+        </div>
     </div>
 @endsection
-
